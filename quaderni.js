@@ -127,8 +127,10 @@ export class NotebookManager {
     wrap.classList.toggle('lined', this.current.tipo === 'righe');
     wrap.classList.toggle('squared', this.current.tipo === 'quadretti');
     this.surface.setElements(page.elementi || []);
-    this.surface.setDrawWithFinger(document.querySelector('#global-finger-draw').checked);
-    this.canvas.classList.toggle('finger-draw', this.surface.drawWithFinger);
+    // Nel quaderno si SCRIVE: il dito disegna sempre, senza bisogno della Pencil
+    // né di attivare un'opzione. (Nei libri il dito resta per scorrere e leggere.)
+    this.surface.setDrawWithFinger(true);
+    this.canvas.classList.toggle('finger-draw', true);
     document.querySelector('#notebook-page-label').textContent = `Pagina ${this.pageIndex + 1} di ${this.pages.length}`;
     document.querySelector('#notebook-prev').disabled = this.pageIndex === 0;
     document.querySelector('#notebook-next').disabled = this.pageIndex === this.pages.length - 1;

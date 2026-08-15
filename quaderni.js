@@ -1,6 +1,6 @@
 // Gestione dei quaderni e delle loro pagine vettoriali.
 import { DB, createId } from './db.js';
-import { DrawingSurface, attachToolbox, drawElement, canvasToJpeg, makePdfFromJpegs, downloadBlob } from './strumenti.js';
+import { DrawingSurface, SurfaceGroup, attachToolbox, drawElement, canvasToJpeg, makePdfFromJpegs, downloadBlob } from './strumenti.js';
 
 function safeFilename(value) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'quaderno';
@@ -32,10 +32,17 @@ export class NotebookManager {
     this.current = null;
     this.pages = [];
     this.pageIndex = 0;
+    this.doppia = false;
     this.saveToken = 0;
+    this.saveToken2 = 0;
     this.canvas = document.querySelector('#notebook-canvas');
-    this.surface = new DrawingSurface(this.canvas, { onChange: (elements) => this.savePage(elements) });
-    attachToolbox(document.querySelector('#notebook-tools'), this.surface);
+    this.canvas2 = document.querySelector('#notebook-canvas-2');
+    // due fogli: sinistro (offset 0) e destro (offset 1). onChange salva la pagina giusta.
+    this.surface = new DrawingSurface(this.canvas, { onChange: (elements) => this.savePage(0, elements) });
+    this.surface2 = new DrawingSurface(this.canvas2, { onChange: (elements) => this.savePage(1, elements) });
+    // un unico astuccio comanda entrambi i fogli (attivo = l'ultimo toccato)
+    this.group = new SurfaceGroup([this.surface, this.surface2]);
+    attachToolbox(document.querySelector('#notebook-tools'), this.group);
     this.bind();
   }
 
@@ -59,8 +66,9 @@ export class NotebookManager {
       await this.open(notebook.id, 1);
     });
     document.querySelector('#close-notebook').addEventListener('click', () => this.close());
-    document.querySelector('#notebook-prev').addEventListener('click', () => this.goTo(this.pageIndex - 1));
-    document.querySelector('#notebook-next').addEventListener('click', () => this.goTo(this.pageIndex + 1));
+    document.querySelector('#notebook-prev').addEventListener('click', () => this.goTo(this.pageIndex - (this.doppia ? 2 : 1)));
+    document.querySelector('#notebook-next').addEventListener('click', () => this.goTo(this.pageIndex + (this.doppia ? 2 : 1)));
+    document.querySelector('#notebook-two-pages').addEventListener('click', () => this.toggleDoppia());
     document.querySelector('#notebook-add-page').addEventListener('click', () => this.addPage());
     document.querySelector('#notebook-delete-page').addEventListener('click', () => this.deletePage());
     document.querySelector('#export-notebook-page').addEventListener('click', () => this.exportPage());
@@ -118,37 +126,75 @@ export class NotebookManager {
     this.current = null;
     this.pages = [];
     this.surface.setElements([]);
+    this.surface2.setElements([]);
     this.renderList();
   }
 
-  showPage() {
-    const page = this.pages[this.pageIndex];
-    const wrap = document.querySelector('#notebook-page-wrap');
+  // Prepara un foglio (sfondo giusto, contenuto, dito che scrive, misura)
+  mostraFoglio(wrap, canvas, surface, page) {
     wrap.classList.toggle('lined', this.current.tipo === 'righe');
     wrap.classList.toggle('squared', this.current.tipo === 'quadretti');
-    this.surface.setElements(page.elementi || []);
-    // Nel quaderno si SCRIVE: il dito disegna sempre, senza bisogno della Pencil
-    // né di attivare un'opzione. (Nei libri il dito resta per scorrere e leggere.)
-    this.surface.setDrawWithFinger(true);
-    this.canvas.classList.toggle('finger-draw', true);
-    document.querySelector('#notebook-page-label').textContent = `Pagina ${this.pageIndex + 1} di ${this.pages.length}`;
-    document.querySelector('#notebook-prev').disabled = this.pageIndex === 0;
-    document.querySelector('#notebook-next').disabled = this.pageIndex === this.pages.length - 1;
-    requestAnimationFrame(() => this.surface.resize());
+    surface.setElements(page ? (page.elementi || []) : []);
+    // Nel quaderno si SCRIVE: il dito disegna sempre, senza bisogno della Pencil.
+    surface.setDrawWithFinger(true);
+    canvas.classList.toggle('finger-draw', true);
+    requestAnimationFrame(() => surface.resize());
+  }
+
+  showPage() {
+    const totale = this.pages.length;
+    document.querySelector('#notebook-pages').classList.toggle('doppia', this.doppia);
+
+    // foglio sinistro (sempre)
+    this.mostraFoglio(document.querySelector('#notebook-page-wrap'), this.canvas, this.surface, this.pages[this.pageIndex]);
+
+    // foglio destro (solo in doppia e se esiste la pagina successiva)
+    const wrap2 = document.querySelector('#notebook-page-wrap-2');
+    const pagDx = this.doppia ? this.pages[this.pageIndex + 1] : null;
+    wrap2.hidden = !pagDx;
+    if (pagDx) this.mostraFoglio(wrap2, this.canvas2, this.surface2, pagDx);
+    else this.surface2.setElements([]);
+
+    // etichetta e navigazione
+    const label = document.querySelector('#notebook-page-label');
+    if (this.doppia) {
+      const conDx = this.pageIndex + 1 < totale;
+      label.textContent = `Pagine ${this.pageIndex + 1}${conDx ? '-' + (this.pageIndex + 2) : ''} di ${totale}`;
+      document.querySelector('#notebook-prev').disabled = this.pageIndex === 0;
+      document.querySelector('#notebook-next').disabled = this.pageIndex + 2 >= totale;
+    } else {
+      label.textContent = `Pagina ${this.pageIndex + 1} di ${totale}`;
+      document.querySelector('#notebook-prev').disabled = this.pageIndex === 0;
+      document.querySelector('#notebook-next').disabled = this.pageIndex === totale - 1;
+    }
+  }
+
+  toggleDoppia() {
+    this.doppia = !this.doppia;
+    // in doppia l'indice di sinistra è sempre pari (coppie 1-2, 3-4, ...)
+    if (this.doppia) this.pageIndex -= this.pageIndex % 2;
+    const btn = document.querySelector('#notebook-two-pages');
+    btn.textContent = this.doppia ? '1 pagina' : '2 pagine';
+    btn.setAttribute('aria-pressed', String(this.doppia));
+    btn.classList.toggle('active', this.doppia);
+    this.showPage();
   }
 
   goTo(index) {
+    if (this.doppia) index -= index % 2;
     if (index < 0 || index >= this.pages.length) return;
     this.pageIndex = index;
     this.showPage();
   }
 
-  async savePage(elements) {
+  async savePage(offset, elements) {
     if (!this.current) return;
-    const page = this.pages[this.pageIndex];
-    const token = ++this.saveToken;
+    const page = this.pages[this.pageIndex + offset];
+    if (!page) return;
+    const key = offset === 0 ? 'saveToken' : 'saveToken2';
+    const token = ++this[key];
     await new Promise((resolve) => requestAnimationFrame(resolve));
-    if (token !== this.saveToken || !page) return;
+    if (token !== this[key]) return;
     page.elementi = elements;
     await DB.put('paginequaderno', page);
   }
@@ -158,6 +204,7 @@ export class NotebookManager {
     await DB.put('paginequaderno', page);
     this.pages.push(page);
     this.pageIndex = this.pages.length - 1;
+    if (this.doppia) this.pageIndex -= this.pageIndex % 2;
     this.current.pagine = this.pages.length;
     await DB.put('quaderni', this.current);
     this.showPage();
@@ -169,6 +216,7 @@ export class NotebookManager {
     await DB.delete('paginequaderno', this.pages[this.pageIndex].id);
     this.pages.splice(this.pageIndex, 1);
     this.pageIndex = Math.min(this.pageIndex, this.pages.length - 1);
+    if (this.doppia) this.pageIndex -= this.pageIndex % 2;
     for (let index = 0; index < this.pages.length; index += 1) {
       this.pages[index].numero = index + 1;
       await DB.put('paginequaderno', this.pages[index]);

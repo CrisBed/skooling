@@ -151,11 +151,11 @@
     <header class="workspace-header">
       <button id="close-notebook" class="icon-button" type="button" aria-label="Chiudi il quaderno">←</button>
       <div class="workspace-title"><strong id="notebook-title">Quaderno</strong><span id="notebook-subject"></span></div>
-      <div class="workspace-actions"><button id="export-notebook-page" class="small-button" type="button">PNG pagina</button><button id="export-notebook-pdf" class="small-button" type="button">PDF quaderno</button><button id="toggle-notebook-tools" class="icon-button" type="button" aria-label="Mostra strumenti">✎</button></div>
+      <div class="workspace-actions"><button id="notebook-two-pages" class="small-button" type="button" aria-pressed="false">2 pagine</button><button id="export-notebook-page" class="small-button" type="button">PNG pagina</button><button id="export-notebook-pdf" class="small-button" type="button">PDF quaderno</button><button id="toggle-notebook-tools" class="icon-button" type="button" aria-label="Mostra strumenti">✎</button></div>
     </header>
     <div class="workspace-body">
       <div class="reader-area notebook-area">
-        <div class="page-scroll"><div id="notebook-page-wrap" class="notebook-paper lined"><canvas id="notebook-canvas" class="drawing-canvas" aria-label="Pagina del quaderno"></canvas></div></div>
+        <div class="page-scroll"><div id="notebook-pages" class="notebook-pages"><div id="notebook-page-wrap" class="notebook-paper lined"><canvas id="notebook-canvas" class="drawing-canvas" aria-label="Pagina del quaderno"></canvas></div><div id="notebook-page-wrap-2" class="notebook-paper lined" hidden><canvas id="notebook-canvas-2" class="drawing-canvas" aria-label="Seconda pagina del quaderno"></canvas></div></div></div>
         <div class="page-controls"><button id="notebook-prev" class="icon-button" type="button" aria-label="Pagina precedente">‹</button><span id="notebook-page-label">Pagina 1 di 1</span><button id="notebook-next" class="icon-button" type="button" aria-label="Pagina successiva">›</button><button id="notebook-add-page" class="small-button" type="button">＋ Pagina</button><button id="notebook-delete-page" class="small-button danger-text" type="button">Elimina pagina</button></div>
       </div>
       <aside id="notebook-tools" class="toolbox" aria-label="Strumenti del quaderno">

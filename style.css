@@ -192,6 +192,8 @@ input[role="switch"]:checked::after { transform: translateX(22px); }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .notebook-area { background: #cdd8ea; }
+.notebook-pages { display: flex; gap: 18px; align-items: flex-start; justify-content: center; }
+.notebook-pages.doppia .notebook-paper { width: min(46vw, 440px); }
 .notebook-paper { position: relative; width: min(78vw, 780px); aspect-ratio: 1 / 1.414; background-color: #fffefa; box-shadow: 0 12px 36px rgb(11 28 68 / 22%); }
 .notebook-paper.lined { background-image: linear-gradient(90deg, transparent 0 8%, rgb(244 129 129 / 55%) 8% 8.2%, transparent 8.2%), repeating-linear-gradient(transparent 0 31px, #c9d9f2 32px 33px); }
 .notebook-paper.squared { background-image: linear-gradient(90deg, transparent 0 8%, rgb(244 129 129 / 55%) 8% 8.2%, transparent 8.2%), repeating-linear-gradient(0deg, transparent 0 23px, #d5e0f1 24px 25px), repeating-linear-gradient(90deg, transparent 0 23px, #d5e0f1 24px 25px); }

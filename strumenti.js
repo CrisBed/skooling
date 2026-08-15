@@ -262,6 +262,7 @@ export class DrawingSurface {
     this.onTouchGesture = options.onTouchGesture || (() => {});
     this.onTextRequired = options.onTextRequired || (() => {});
     this.onTextSelection = options.onTextSelection || (() => {});
+    this.onActivate = options.onActivate || (() => {}); // "sono io il foglio su cui si scrive"
     this.resizeObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(() => this.resize()) : null;
     this.resizeObserver?.observe(canvas);
     this.bindEvents();
@@ -371,6 +372,7 @@ export class DrawingSurface {
       return;
     }
     if (!this.canDraw(event)) return;
+    this.onActivate(); // questo foglio diventa quello attivo per astuccio, testo e annulla
     event.preventDefault();
     this.canvas.setPointerCapture?.(event.pointerId);
     const point = this.pointFromEvent(event);
@@ -503,6 +505,47 @@ export class DrawingSurface {
   destroy() {
     this.resizeObserver?.disconnect();
   }
+}
+
+// Raggruppa più fogli (DrawingSurface) sotto un unico astuccio: le scelte comuni
+// (strumento, colore, spessore...) valgono per tutti i fogli; annulla/ripeti e il
+// testo agiscono sul foglio ATTIVO, cioè l'ultimo toccato. Espone la stessa
+// interfaccia che attachToolbox si aspetta da una singola surface, così l'astuccio
+// non sa nemmeno che i fogli sono più di uno.
+export class SurfaceGroup {
+  constructor(surfaces) {
+    this.surfaces = surfaces;
+    this.active = surfaces[0];
+    this._onTextRequired = () => {};
+    this._onTextSelection = () => {};
+    for (const s of surfaces) {
+      s.onActivate = () => { this.active = s; };
+      s.onTextRequired = () => this._onTextRequired();
+      s.onTextSelection = (element) => this._onTextSelection(element);
+    }
+  }
+
+  // Scelte comuni: valgono per tutti i fogli
+  setTool(tool) { this.surfaces.forEach((s) => s.setTool(tool)); }
+  setColor(color) { this.surfaces.forEach((s) => s.setColor(color)); }
+  setWidth(width) { this.surfaces.forEach((s) => s.setWidth(width)); }
+  setReadOnly(value) { this.surfaces.forEach((s) => s.setReadOnly(value)); }
+  setDrawWithFinger(value) { this.surfaces.forEach((s) => s.setDrawWithFinger(value)); }
+  setTextDraft(draft) { this.surfaces.forEach((s) => s.setTextDraft(draft)); }
+
+  // Azioni sul foglio attivo
+  undo() { return this.active.undo(); }
+  redo() { return this.active.redo(); }
+  updateSelectedText(draft) { return this.active.updateSelectedText(draft); }
+  render() { this.active.render(); }
+
+  get textDraft() { return this.active.textDraft; }
+  get selectedId() { return this.active.selectedId; }
+  set selectedId(value) { this.active.selectedId = value; }
+  get onTextRequired() { return this._onTextRequired; }
+  set onTextRequired(fn) { this._onTextRequired = fn; }
+  get onTextSelection() { return this._onTextSelection; }
+  set onTextSelection(fn) { this._onTextSelection = fn; }
 }
 
 function ascii(value) { return new TextEncoder().encode(value); }

@@ -255,6 +255,8 @@ export class DrawingSurface {
     };
     this.active = null;
     this.selectedId = null;
+    this.editingId = null;   // id della casella di testo aperta per scriverci
+    this.textEditor = null;  // l'elemento HTML editabile in-place (apre la tastiera grande)
     this.pointers = new Map();
     this.history = new HistoryStack(30);
     this.history.reset([]);
@@ -367,6 +369,7 @@ export class DrawingSurface {
 
   pointerDown(event) {
     this.pointers.set(event.pointerId, this.pointFromEvent(event));
+    if (this.textEditor) { this.textEditor.blur(); return; } // il tocco conferma/chiude la casella aperta
     if (event.pointerType === 'touch' && !this.drawWithFinger) {
       this.onTouchGesture('start', event, this.pointers);
       return;
@@ -382,35 +385,29 @@ export class DrawingSurface {
       return;
     }
     if (this.tool === 'testo') {
-      const existing = [...this.elements].reverse().find((item) => item.tipo === 'testo' && hitTestElement(item, point, 0.01));
+      const existing = [...this.elements].reverse().find((item) => item.tipo === 'testo' && hitTestElement(item, point, 0.02));
       if (existing) {
+        // tocco una casella: mi preparo a spostarla; se non trascino (tap) la apro per scriverci
         this.selectedId = existing.id;
-        this.textDraft = { ...this.textDraft, ...existing };
-        this.onTextSelection(clone(existing));
-        const resize = Math.hypot(point.x - (existing.x + existing.w), point.y - (existing.y + existing.h)) < 0.04;
-        this.active = { kind: resize ? 'resize-text' : 'move-text', id: existing.id, start: point, original: clone(existing) };
-      } else {
-        const text = this.textDraft.testo?.trim();
-        if (!text) { this.onTextRequired(); return; }
-        const element = {
-          id: createId('segno'), tipo: 'testo', testo: text,
-          x: Math.max(0, Math.min(0.65, point.x)),
-          y: Math.max(0, Math.min(0.88, point.y)),
-          w: 0.35, h: 0.12,
-          colore: this.textDraft.colore || this.color,
-          dimensioneTesto: this.textDraft.dimensioneTesto || 24,
-          carattere: this.textDraft.carattere || 'sans',
-          grassetto: Boolean(this.textDraft.grassetto),
-          corsivo: Boolean(this.textDraft.corsivo),
-          allineamento: this.textDraft.allineamento || 'left',
-          timestamp: Date.now(),
-        };
-        this.elements.push(element);
-        this.selectedId = element.id;
-        this.onTextSelection(clone(element));
-        this.commit();
+        this.active = { kind: 'move-text', id: existing.id, start: point, original: clone(existing), moved: false };
+        this.render();
+        return;
       }
+      // punto vuoto: creo la casella qui e la apro subito per scrivere (tastiera grande, come Anteprima)
+      const element = {
+        id: createId('segno'), tipo: 'testo', testo: '',
+        x: Math.max(0, Math.min(0.92, point.x)),
+        y: Math.max(0, Math.min(0.94, point.y)),
+        w: 0.4, h: 0.1,
+        colore: this.color,
+        dimensioneTesto: this.textSizeFromWidth(),
+        allineamento: 'left',
+        timestamp: Date.now(),
+      };
+      this.elements.push(element);
+      this.selectedId = element.id;
       this.render();
+      this.apriEditorTesto(element);
       return;
     }
     const base = { id: createId('segno'), tipo: this.tool, colore: this.color, spessore: this.width, timestamp: Date.now() };
@@ -441,6 +438,7 @@ export class DrawingSurface {
       if (this.active.kind === 'move-text') {
         element.x = Math.max(0, Math.min(1 - element.w, this.active.original.x + dx));
         element.y = Math.max(0, Math.min(1 - element.h, this.active.original.y + dy));
+        if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) this.active.moved = true;
       } else {
         element.w = Math.max(0.12, Math.min(1 - element.x, this.active.original.w + dx));
         element.h = Math.max(0.07, Math.min(1 - element.y, this.active.original.h + dy));
@@ -466,9 +464,68 @@ export class DrawingSurface {
       else this.render();
       return;
     }
+    if (this.active.kind === 'move-text' && !this.active.moved) {
+      // tap su una casella esistente (non spostata): la apro per scriverci
+      const el = this.elements.find((e) => e.id === this.active.id);
+      this.active = null;
+      if (el) this.apriEditorTesto(el);
+      return;
+    }
     if (!this.active.kind && this.active.punti?.length === 1) this.active.punti.push({ ...this.active.punti[0], x: this.active.punti[0].x + 0.0001 });
     this.active = null;
     this.commit();
+  }
+
+  textSizeFromWidth() {
+    return this.width <= 2 ? 26 : this.width >= 10 ? 60 : 40;
+  }
+
+  // Apre una casella di testo editabile IN-PLACE sul foglio: la tastiera grande del
+  // dispositivo si apre e si scrive dentro. Al termine (tocco fuori o Invio) il testo
+  // resta al suo posto; se la casella resta vuota, si annulla.
+  apriEditorTesto(element) {
+    const parent = this.canvas.parentElement;
+    if (!parent || typeof document === 'undefined') return; // senza DOM (es. test): niente casella
+    this.editingId = element.id;
+    this.render();
+    const rect = this.canvas.getBoundingClientRect();
+    const editor = document.createElement('div');
+    editor.contentEditable = 'true';
+    editor.className = 'text-inplace';
+    editor.textContent = element.testo || '';
+    editor.style.left = `${element.x * 100}%`;
+    editor.style.top = `${element.y * 100}%`;
+    editor.style.color = element.colore;
+    editor.style.fontSize = `${Math.max(12, element.dimensioneTesto * rect.height / 1000)}px`;
+    editor.style.maxWidth = `${Math.max(10, (1 - element.x) * 100)}%`;
+    parent.appendChild(editor);
+    this.textEditor = editor;
+    editor.focus();
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    const chiudi = () => {
+      if (this.textEditor !== editor) return;
+      const testo = editor.textContent.replace(/ /g, ' ').replace(/\s+$/,'').trim();
+      editor.remove();
+      this.textEditor = null;
+      this.editingId = null;
+      const el = this.elements.find((e) => e.id === element.id);
+      if (el) {
+        if (!testo) this.elements = this.elements.filter((e) => e.id !== element.id);
+        else el.testo = testo;
+      }
+      this.commit();
+    };
+    editor.addEventListener('blur', chiudi);
+    editor.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); editor.blur(); }
+      if (e.key === 'Escape') { e.preventDefault(); editor.blur(); }
+    });
   }
 
   commit() {
@@ -499,7 +556,10 @@ export class DrawingSurface {
 
   render(context = this.context, width = this.canvas.width, height = this.canvas.height) {
     context.clearRect(0, 0, width, height);
-    for (const element of this.elements) drawElement(context, element, width, height, element.id === this.selectedId);
+    for (const element of this.elements) {
+      if (element.id === this.editingId) continue; // in scrittura: lo mostra la casella HTML
+      drawElement(context, element, width, height, element.id === this.selectedId);
+    }
   }
 
   destroy() {
@@ -743,10 +803,9 @@ export function attachToolbox(root, surface) {
     if (button.dataset.tool) {
       root.querySelectorAll('[data-tool]').forEach((item) => item.classList.toggle('active', item === button));
       surface.setTool(button.dataset.tool);
-      const isText = button.dataset.tool === 'testo';
-      textPanel.hidden = !isText;
-      root.classList.toggle('text-tool-active', isText);
-      if (isText) prepareNewText();
+      // niente pannello di scrittura laterale: il testo si scrive in-place sul foglio
+      textPanel.hidden = true;
+      root.classList.remove('text-tool-active');
     } else if (button.dataset.color) {
       root.querySelectorAll('[data-color]').forEach((item) => item.classList.toggle('active', item === button));
       surface.setColor(button.dataset.color);

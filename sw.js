@@ -1,5 +1,5 @@
 // Incrementa questo nome dopo ogni modifica ai file dell'app.
-const CACHE_NAME = 'skooling-v7';
+const CACHE_NAME = 'skooling-v8';
 const STATIC_FILES = [
   './',
   './index.html',

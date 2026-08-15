@@ -69,13 +69,11 @@ test('il testo usa dimensione, carattere, stile e allineamento scelti', () => {
   assert.equal(calls[0].x, 350);
 });
 
-test('un nuovo testo conserva contenuto e formattazione preparati nel pannello', () => {
+test('toccando un punto vuoto col testo si crea la casella lì, col colore e la grandezza scelti', () => {
   const surface = new DrawingSurface(makeCanvas());
   surface.setTool('testo');
-  surface.textDraft = {
-    testo: 'Appunto importante', colore: '#8b5cf6', dimensioneTesto: 32,
-    carattere: 'mono', grassetto: true, corsivo: false, allineamento: 'right',
-  };
+  surface.setColor('#8b5cf6');
+  surface.setWidth(10);
 
   surface.pointerDown({
     pointerId: 1, pointerType: 'mouse', clientX: 200, clientY: 300,
@@ -83,15 +81,13 @@ test('un nuovo testo conserva contenuto e formattazione preparati nel pannello',
   });
 
   assert.equal(surface.elements.length, 1);
-  assert.deepEqual(
-    surface.elements[0],
-    {
-      id: surface.elements[0].id, tipo: 'testo', testo: 'Appunto importante',
-      x: 0.2, y: 0.3, w: 0.35, h: 0.12, colore: '#8b5cf6',
-      dimensioneTesto: 32, carattere: 'mono', grassetto: true,
-      corsivo: false, allineamento: 'right', timestamp: surface.elements[0].timestamp,
-    },
-  );
+  const el = surface.elements[0];
+  assert.equal(el.tipo, 'testo');
+  assert.equal(el.testo, ''); // vuota: la si scrive nella casella in-place
+  assert.equal(el.x, 0.2);
+  assert.equal(el.y, 0.3);
+  assert.equal(el.colore, '#8b5cf6');
+  assert.equal(el.dimensioneTesto, 60); // spessore grande -> testo grande
 });
 
 test('il testo selezionato può essere riscritto e riformattato', () => {
@@ -124,18 +120,17 @@ test('il testo selezionato può essere riscritto e riformattato', () => {
   );
 });
 
-test('una casella di testo inserita vicino al bordo resta dentro la pagina', () => {
+test('una casella di testo creata vicino al bordo resta dentro la pagina', () => {
   const surface = new DrawingSurface(makeCanvas());
   surface.setTool('testo');
-  surface.textDraft = { ...surface.textDraft, testo: 'Dentro il foglio' };
 
   surface.pointerDown({
-    pointerId: 2, pointerType: 'mouse', clientX: 950, clientY: 960,
+    pointerId: 2, pointerType: 'mouse', clientX: 990, clientY: 990,
     pressure: 0.5, preventDefault() {},
   });
 
-  assert.equal(surface.elements[0].x, 0.65);
-  assert.equal(surface.elements[0].y, 0.88);
+  assert.equal(surface.elements[0].x, 0.92);
+  assert.equal(surface.elements[0].y, 0.94);
 });
 
 test('la gomma divide un tratto a penna senza cancellarlo interamente', () => {

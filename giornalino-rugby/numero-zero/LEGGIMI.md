@@ -8,6 +8,8 @@ Pagina verticale 1024x1536 pensata per la lettura sul telefono in quindici secon
 2. `GIORNALINO-RUGBY-numero-zero-2048x3072.png`: la stessa pagina a risoluzione doppia, per la stampa o gli schermi ad alta densità.
 3. `GIORNALINO-RUGBY-numero-zero.html`: la pagina in HTML e SVG, autosufficiente, con i caratteri incorporati.
 4. `sorgente/`: gli script che rigenerano tutto.
+5. `GIORNALINO-RUGBY-numero-zero-ChatGPT-1054x1492.png`: la stessa pagina generata da ChatGPT con il prompt in `PROMPT-numero-zero-giornalino-societa-ChatGPT.md`, nella mano dipinta delle tavole del giornalino. È la versione da preferire per la resa grafica.
+6. `PROMPT-numero-zero-giornalino-societa-ChatGPT.md`: il prompt di generazione, con le correzioni da chiedere dopo la prima resa.
 
 ## Rigenerare la pagina
 

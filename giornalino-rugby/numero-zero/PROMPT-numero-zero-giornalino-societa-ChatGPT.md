@@ -36,3 +36,8 @@ A destra, intestazione: LA REGOLA. Un piccolo disegno del pallone con frecce ver
 6. Piè di pagina sottile, striscia blu con scritta bianca: Giornalino della società - numero zero
 
 Genera la pagina e poi fermati.
+
+---
+
+CORREZIONI DOPO LA PRIMA GENERAZIONE DEL 06/09/2026 (da incollare come messaggio successivo, se servono):
+Rifai la stessa pagina, identica, con solo queste correzioni: 1) togli la scritta LAFERT GROUP dal piè di pagina, deve restare solo sulla maglia; 2) le tre righe degli appuntamenti vanno in grigio chiaro, non in nero; 3) la frase "Si placca forte, poi si dà la mano. Sempre." va dentro un fumetto che parte da Ovale; 4) nella fascia di benvenuto il fumetto deve partire da Ovale, non da Gabriel; 5) formato esatto 1024x1536.

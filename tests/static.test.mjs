@@ -36,7 +36,8 @@ test('nessun file di consegna contiene segnaposto di sviluppo', async () => {
   const entries = await readdir(root, { recursive: true, withFileTypes: true });
   const files = entries.filter((entry) => entry.isFile() && !entry.parentPath.includes('/tests')).map((entry) => join(entry.parentPath, entry.name));
   for (const file of files) {
-    if (/\.(png|mjs)$/.test(file) && file.includes('/vendor/')) continue;
+    if (/\.(png|jpe?g|woff2?)$/.test(file)) continue;
+    if (/\.mjs$/.test(file) && file.includes('/vendor/')) continue;
     const source = await readFile(file, 'utf8').catch(() => '');
     assert.doesNotMatch(source, /\b(?:TBD|FIXME)\b|(?:\/\/|<!--)\s*TODO\b/i, file);
   }

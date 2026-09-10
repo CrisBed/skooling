@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizePoint, hitTestElement, HistoryStack, makePdfFromJpegs, drawElement, DrawingSurface } from '../strumenti.js';
+import { normalizePoint, hitTestElement, HistoryStack, makePdfFromJpegs, drawElement, DrawingSurface, creaGestoCondiviso } from '../strumenti.js';
 
 function makeCanvas() {
   const context = {
@@ -196,4 +196,81 @@ test('trascinando la gomma viene cancellato tutto il percorso attraversato', asy
   const remainingX = surface.elements.flatMap((element) => element.punti.map((point) => point.x));
   assert.equal(remainingX.some((x) => x > 0.35 && x < 0.65), false);
   assert.equal(changes.length, 1);
+});
+
+function tocco(pointerId, clientX, clientY) {
+  return { pointerId, pointerType: 'touch', clientX, clientY, pressure: 0.5, preventDefault() {} };
+}
+
+test('nel quaderno un dito scrive, il secondo dito annulla il segno e diventa gesto', () => {
+  const fasi = [];
+  const surface = new DrawingSurface(makeCanvas(), { onTouchGesture: (fase) => fasi.push(fase) });
+  surface.setDrawWithFinger(true);
+  surface.setTool('penna');
+
+  surface.pointerDown(tocco(1, 100, 100));
+  surface.pointerMove(tocco(1, 200, 200));
+  assert.equal(surface.elements.length, 1, 'con un dito solo si scrive');
+
+  surface.pointerDown(tocco(2, 400, 400));
+  assert.equal(surface.elements.length, 0, 'il segno appena iniziato viene tolto');
+  assert.equal(surface.gesto.attivo, true);
+  assert.deepEqual(fasi, ['start']);
+
+  surface.pointerMove(tocco(2, 500, 500));
+  assert.equal(surface.elements.length, 0, 'muovendo due dita non si disegna');
+  assert.deepEqual(fasi, ['start', 'move']);
+});
+
+test('finché resta a terra un dito del gesto non si torna a scrivere', () => {
+  const surface = new DrawingSurface(makeCanvas(), { onTouchGesture: () => {} });
+  surface.setDrawWithFinger(true);
+  surface.setTool('penna');
+
+  surface.pointerDown(tocco(1, 100, 100));
+  surface.pointerDown(tocco(2, 400, 400));
+  surface.pointerUp(tocco(2, 400, 400));
+  surface.pointerMove(tocco(1, 300, 300));
+  assert.equal(surface.elements.length, 0, 'il dito rimasto non riprende a disegnare');
+  assert.equal(surface.gesto.attivo, true);
+
+  surface.pointerUp(tocco(1, 300, 300));
+  assert.equal(surface.gesto.attivo, false, 'alzate tutte le dita il gesto finisce');
+
+  surface.pointerDown(tocco(3, 120, 120));
+  surface.pointerMove(tocco(3, 220, 220));
+  assert.equal(surface.elements.length, 1, 'dopo il gesto si torna a scrivere');
+});
+
+test('due fogli affiancati contano le dita insieme', () => {
+  const gesto = creaGestoCondiviso();
+  const fasi = [];
+  const sinistro = new DrawingSurface(makeCanvas(), { gesto, onTouchGesture: (fase) => fasi.push(fase) });
+  const destro = new DrawingSurface(makeCanvas(), { gesto, onTouchGesture: (fase) => fasi.push(fase) });
+  for (const foglio of [sinistro, destro]) { foglio.setDrawWithFinger(true); foglio.setTool('penna'); }
+
+  sinistro.pointerDown(tocco(1, 100, 100));
+  sinistro.pointerMove(tocco(1, 200, 200));
+  assert.equal(sinistro.elements.length, 1);
+
+  // il secondo dito cade sull'altro foglio: è comunque un gesto solo
+  destro.pointerDown(tocco(2, 300, 300));
+  assert.equal(sinistro.elements.length, 0, 'il segno sul foglio di sinistra viene tolto');
+  assert.equal(destro.elements.length, 0);
+  assert.equal(gesto.attivo, true);
+  assert.deepEqual(fasi, ['start']);
+});
+
+test('la gomma interrotta dal secondo dito non lascia cancellature a metà', () => {
+  const surface = new DrawingSurface(makeCanvas(), { onTouchGesture: () => {} });
+  surface.setDrawWithFinger(true);
+  surface.setElements([{ id: 'segno-1', tipo: 'penna', colore: '#000', spessore: 5, punti: [{ x: 0.1, y: 0.1 }, { x: 0.9, y: 0.1 }] }]);
+  surface.setTool('gomma');
+
+  surface.pointerDown(tocco(1, 500, 100));
+  assert.notEqual(surface.elements.length, 1, 'la gomma ha già spezzato il tratto');
+
+  surface.pointerDown(tocco(2, 200, 800));
+  assert.equal(surface.elements.length, 1, 'il tratto torna intero');
+  assert.equal(surface.elements[0].id, 'segno-1');
 });

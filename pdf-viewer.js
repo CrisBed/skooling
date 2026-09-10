@@ -1,7 +1,7 @@
 // Lettore PDF basato sulla copia locale di PDF.js.
 import * as pdfjsLib from './vendor/pdf.mjs';
 import { DB } from './db.js';
-import { DrawingSurface, attachToolbox } from './strumenti.js';
+import { DrawingSurface, SurfaceGroup, attachToolbox, creaGestoCondiviso } from './strumenti.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = './vendor/pdf.worker.mjs';
 
@@ -28,33 +28,59 @@ export async function extractPdfCover(blob) {
 class Reader {
   constructor() {
     this.root = document.querySelector('#lettore-pdf');
+    this.pagesBox = document.querySelector('#pdf-pages');
     this.canvas = document.querySelector('#pdf-canvas');
+    this.canvas2 = document.querySelector('#pdf-canvas-2');
     this.annotationCanvas = document.querySelector('#pdf-annotations');
+    this.annotationCanvas2 = document.querySelector('#pdf-annotations-2');
     this.pageWrap = document.querySelector('#pdf-page-wrap');
+    this.pageWrap2 = document.querySelector('#pdf-page-wrap-2');
     this.scroll = document.querySelector('#pdf-scroll');
     this.loading = document.querySelector('#reader-loading');
     this.pageNumberInput = document.querySelector('#page-number');
     this.pdf = null;
     this.book = null;
     this.pageNumber = 1;
+    this.doppia = false;
     this.zoom = 1;
     this.renderTask = null;
+    this.renderTask2 = null;
     this.thumbnailObserver = null;
     this.pinch = null;
     this.lastTap = 0;
     this.annotationSaveToken = 0;
+    this.annotationSaveToken2 = 0;
+    // Un solo gesto per le due pagine: le due dita possono cadere su fogli diversi.
+    const gesto = creaGestoCondiviso();
+    const gestoTocco = (phase, event, touches) => this.handleTouchGesture(phase, event, touches);
     this.drawing = new DrawingSurface(this.annotationCanvas, {
-      onChange: (elements) => this.saveAnnotations(elements),
-      onTouchGesture: (phase, event, pointers) => this.handleTouchGesture(phase, event, pointers),
+      gesto,
+      onChange: (elements) => this.saveAnnotations(0, elements),
+      onTouchGesture: gestoTocco,
     });
-    attachToolbox(document.querySelector('#reader-tools'), this.drawing);
+    this.drawing2 = new DrawingSurface(this.annotationCanvas2, {
+      gesto,
+      onChange: (elements) => this.saveAnnotations(1, elements),
+      onTouchGesture: gestoTocco,
+    });
+    // Un unico astuccio comanda tutte e due le pagine, come nei quaderni.
+    this.group = new SurfaceGroup([this.drawing, this.drawing2]);
+    attachToolbox(document.querySelector('#reader-tools'), this.group);
     this.bind();
+  }
+
+  // Il dito disegna oppure scorre: la scelta vale per tutte e due le pagine.
+  setDrawWithFinger(value) {
+    this.group.setDrawWithFinger(value);
+    this.annotationCanvas.classList.toggle('finger-draw', Boolean(value));
+    this.annotationCanvas2.classList.toggle('finger-draw', Boolean(value));
   }
 
   bind() {
     document.querySelector('#close-reader').addEventListener('click', () => this.close());
-    document.querySelector('#prev-page').addEventListener('click', () => this.goTo(this.pageNumber - 1));
-    document.querySelector('#next-page').addEventListener('click', () => this.goTo(this.pageNumber + 1));
+    document.querySelector('#prev-page').addEventListener('click', () => this.goTo(this.pageNumber - this.passo()));
+    document.querySelector('#next-page').addEventListener('click', () => this.goTo(this.pageNumber + this.passo()));
+    document.querySelector('#reader-two-pages').addEventListener('click', () => this.toggleDoppia());
     this.pageNumberInput.addEventListener('change', () => this.goTo(Number(this.pageNumberInput.value)));
     document.querySelector('#fit-page').addEventListener('click', () => this.setZoom(1));
     document.querySelector('#toggle-thumbnails').addEventListener('click', (event) => {
@@ -69,15 +95,17 @@ class Reader {
       event.currentTarget.classList.toggle('active', !tools.hidden);
     });
     document.querySelector('#toggle-night').addEventListener('click', (event) => {
-      this.pageWrap.classList.toggle('night');
-      event.currentTarget.classList.toggle('active');
+      const notte = !this.pageWrap.classList.contains('night');
+      this.pageWrap.classList.toggle('night', notte);
+      this.pageWrap2.classList.toggle('night', notte);
+      event.currentTarget.classList.toggle('active', notte);
     });
     document.querySelector('#toggle-bookmark').addEventListener('click', () => this.toggleBookmark());
     this.scroll.addEventListener('dblclick', () => this.setZoom(1));
     window.addEventListener('keydown', (event) => {
       if (this.root.hidden) return;
-      if (event.key === 'ArrowLeft') this.goTo(this.pageNumber - 1);
-      if (event.key === 'ArrowRight') this.goTo(this.pageNumber + 1);
+      if (event.key === 'ArrowLeft') this.goTo(this.pageNumber - this.passo());
+      if (event.key === 'ArrowRight') this.goTo(this.pageNumber + this.passo());
     });
     let resizeTimer;
     window.addEventListener('resize', () => {
@@ -98,7 +126,7 @@ class Reader {
     try {
       const task = pdfjsLib.getDocument({ data: await this.book.blob.arrayBuffer() });
       this.pdf = await task.promise;
-      this.pageNumber = Math.max(1, Math.min(Number(page || this.book.ultimaPagina || 1), this.pdf.numPages));
+      this.pageNumber = this.allinea(Math.max(1, Math.min(Number(page || this.book.ultimaPagina || 1), this.pdf.numPages)));
       this.pageNumberInput.max = this.pdf.numPages;
       document.querySelector('#page-total').textContent = `di ${this.pdf.numPages}`;
       this.buildThumbnails();
@@ -113,57 +141,96 @@ class Reader {
 
   async close() {
     this.renderTask?.cancel?.();
+    this.renderTask2?.cancel?.();
     await this.pdf?.destroy?.().catch(() => {});
     this.pdf = null;
     this.book = null;
     this.drawing.setElements([]);
+    this.drawing2.setElements([]);
+    this.pageWrap2.hidden = true;
+    this.pagesBox.style.transform = '';
     this.root.hidden = true;
     document.body.classList.remove('workspace-open');
     document.dispatchEvent(new CustomEvent('skooling:reader-closed'));
   }
 
+  // A due pagine si sfoglia di due in due, in coppie 1-2, 3-4, 5-6...
+  passo() { return this.doppia ? 2 : 1; }
+
+  allinea(numero) { return this.doppia ? numero - ((numero - 1) % 2) : numero; }
+
   async goTo(number) {
     if (!this.pdf) return;
-    const next = Math.max(1, Math.min(this.pdf.numPages, Math.round(number || 1)));
-    if (next === this.pageNumber && this.canvas.width) return;
+    const next = this.allinea(Math.max(1, Math.min(this.pdf.numPages, Math.round(number || 1))));
+    if (next === this.pageNumber && this.canvas.width) {
+      // Già su questa coppia: il campo torna a mostrare la pagina di sinistra.
+      this.pageNumberInput.value = this.pageNumber;
+      return;
+    }
     this.pageNumber = next;
     this.zoom = 1;
     await this.renderPage();
+  }
+
+  async toggleDoppia() {
+    this.doppia = !this.doppia;
+    const button = document.querySelector('#reader-two-pages');
+    button.textContent = this.doppia ? '1 pagina' : '2 pagine';
+    button.setAttribute('aria-pressed', String(this.doppia));
+    button.classList.toggle('active', this.doppia);
+    this.pageNumber = this.allinea(this.pageNumber);
+    this.zoom = 1;
+    if (this.pdf) await this.renderPage();
+  }
+
+  // Disegna una delle due pagine: il PDF sotto, le annotazioni sopra.
+  async renderOne(offset, numero, available, annotations) {
+    const canvas = offset ? this.canvas2 : this.canvas;
+    const wrap = offset ? this.pageWrap2 : this.pageWrap;
+    const surface = offset ? this.drawing2 : this.drawing;
+    const page = await this.pdf.getPage(numero);
+    const base = page.getViewport({ scale: 1 });
+    const ratio = Math.min(2, devicePixelRatio || 1);
+    const viewport = page.getViewport({ scale: (available / base.width) * this.zoom * ratio });
+    const cssWidth = viewport.width / ratio;
+    const cssHeight = viewport.height / ratio;
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    canvas.style.width = `${cssWidth}px`;
+    canvas.style.height = `${cssHeight}px`;
+    wrap.style.width = `${cssWidth}px`;
+    wrap.style.height = `${cssHeight}px`;
+    const task = page.render({ canvasContext: canvas.getContext('2d'), viewport });
+    if (offset) this.renderTask2 = task; else this.renderTask = task;
+    await task.promise;
+    surface.setElements(annotations.filter((item) => item.idLibro === this.book.id && item.pagina === numero));
   }
 
   async renderPage() {
     if (!this.pdf) return;
     this.loading.hidden = false;
     this.renderTask?.cancel?.();
+    this.renderTask2?.cancel?.();
     try {
-      const page = await this.pdf.getPage(this.pageNumber);
-      const base = page.getViewport({ scale: 1 });
-      const available = Math.max(280, this.scroll.clientWidth - 56);
-      const fitScale = available / base.width;
-      const ratio = Math.min(2, devicePixelRatio || 1);
-      const viewport = page.getViewport({ scale: fitScale * this.zoom * ratio });
-      const cssWidth = viewport.width / ratio;
-      const cssHeight = viewport.height / ratio;
-      this.canvas.width = Math.ceil(viewport.width);
-      this.canvas.height = Math.ceil(viewport.height);
-      this.canvas.style.width = `${cssWidth}px`;
-      this.canvas.style.height = `${cssHeight}px`;
-      this.pageWrap.style.width = `${cssWidth}px`;
-      this.pageWrap.style.height = `${cssHeight}px`;
-      this.pageWrap.style.transform = '';
-      this.renderTask = page.render({ canvasContext: this.canvas.getContext('2d'), viewport });
-      await this.renderTask.promise;
-      const allAnnotations = await DB.getAll('annotazioni');
-      const annotations = allAnnotations.filter((item) => item.idLibro === this.book.id && item.pagina === this.pageNumber);
-      this.drawing.setElements(annotations);
-      this.annotationCanvas.classList.toggle('finger-draw', this.drawing.drawWithFinger);
+      const destra = this.doppia && this.pageNumber + 1 <= this.pdf.numPages ? this.pageNumber + 1 : null;
+      this.pageWrap2.hidden = !destra;
+      // Con due pagine la larghezza si divide, meno lo spazio tra i due fogli.
+      const available = destra
+        ? Math.max(200, (this.scroll.clientWidth - 56 - 18) / 2)
+        : Math.max(280, this.scroll.clientWidth - 56);
+      this.pagesBox.style.transform = '';
+      const annotations = await DB.getAll('annotazioni');
+      await this.renderOne(0, this.pageNumber, available, annotations);
+      if (destra) await this.renderOne(1, destra, available, annotations);
+      else this.drawing2.setElements([]);
+      this.setDrawWithFinger(this.drawing.drawWithFinger);
       this.pageNumberInput.value = this.pageNumber;
       document.querySelector('#zoom-label').textContent = `${Math.round(this.zoom * 100)}%`;
       this.updateThumbnailSelection();
       await DB.put('libri', { ...this.book, ultimaPagina: this.pageNumber });
       this.book.ultimaPagina = this.pageNumber;
       this.updateBookmarkButton();
-      for (const nearby of [this.pageNumber - 1, this.pageNumber + 1]) {
+      for (const nearby of [this.pageNumber - 1, this.pageNumber + this.passo() + 1]) {
         if (nearby >= 1 && nearby <= this.pdf.numPages) this.pdf.getPage(nearby).catch(() => {});
       }
       this.scroll.scrollTo({ top: 0, left: 0 });
@@ -181,15 +248,15 @@ class Reader {
     await this.renderPage();
   }
 
-  handleTouchGesture(phase, event, pointers) {
-    if (phase === 'start' && pointers.size === 2) {
-      const [a, b] = [...pointers.values()];
-      this.pinch = { distance: Math.hypot(a.x - b.x, a.y - b.y), zoom: this.zoom, preview: this.zoom };
-    } else if (phase === 'move' && this.pinch && pointers.size >= 2) {
-      const [a, b] = [...pointers.values()];
-      const distance = Math.hypot(a.x - b.x, a.y - b.y);
-      this.pinch.preview = Math.max(0.75, Math.min(3.5, this.pinch.zoom * distance / Math.max(0.01, this.pinch.distance)));
-      this.pageWrap.style.transform = `scale(${this.pinch.preview / this.zoom})`;
+  handleTouchGesture(phase, event, touches) {
+    if (phase === 'start' && touches.size === 2) {
+      const [a, b] = [...touches.values()];
+      this.pinch = { distance: Math.hypot(a.x - b.x, a.y - b.y) || 1, zoom: this.zoom, preview: this.zoom };
+    } else if (phase === 'move' && this.pinch && touches.size >= 2) {
+      const [a, b] = [...touches.values()];
+      const distance = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+      this.pinch.preview = Math.max(0.75, Math.min(3.5, this.pinch.zoom * distance / this.pinch.distance));
+      this.pagesBox.style.transform = `scale(${this.pinch.preview / this.zoom})`;
     } else if (phase === 'end' && this.pinch) {
       const preview = this.pinch.preview;
       this.pinch = null;
@@ -201,13 +268,16 @@ class Reader {
     }
   }
 
-  async saveAnnotations(elements) {
+  // Salva le annotazioni della pagina toccata: 0 = sinistra, 1 = destra.
+  async saveAnnotations(offset, elements) {
     if (!this.book || !this.pdf) return;
-    const token = ++this.annotationSaveToken;
+    const page = this.pageNumber + offset;
+    if (offset && (!this.doppia || page > this.pdf.numPages)) return;
+    const chiave = offset ? 'annotationSaveToken2' : 'annotationSaveToken';
+    const token = ++this[chiave];
     const bookId = this.book.id;
-    const page = this.pageNumber;
     await waitFrame();
-    if (token !== this.annotationSaveToken) return;
+    if (token !== this[chiave]) return;
     await DB.deleteWhere('annotazioni', (item) => item.idLibro === bookId && item.pagina === page);
     await DB.putMany('annotazioni', elements.map((item) => ({ ...item, idLibro: bookId, pagina: page })));
   }

@@ -1,5 +1,7 @@
 // Incrementa questo nome dopo ogni modifica ai file dell'app.
-const CACHE_NAME = 'skooling-v8';
+// Lo fa da solo pubblica.sh: il nome nuovo è ciò che porta la versione nuova
+// sul dispositivo di Gabriel, senza che lui debba reinstallare nulla.
+const CACHE_NAME = 'skooling-v9';
 const STATIC_FILES = [
   './',
   './index.html',
@@ -17,8 +19,24 @@ const STATIC_FILES = [
   './vendor/pdf.worker.mjs'
 ];
 
+// In locale (serve.py sulla 3007) vince sempre la rete: così una modifica si
+// vede ricaricando, senza dover ripulire a mano service worker e cache. Online
+// resta il comportamento buono per l'iPad: prima la cache, quindi l'app parte
+// subito e funziona in aereo.
+const SVILUPPO_LOCALE = ['localhost', '127.0.0.1', '::1'].includes(self.location.hostname);
+
+// I file si scaricano saltando la cache del browser: senza questo, una copia
+// vecchia ancora valida per la rete finirebbe dentro la cache nuova.
+function richiestaFresca(url) {
+  return new Request(url, { cache: 'reload' });
+}
+
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_FILES)).then(() => self.skipWaiting()));
+  event.waitUntil(
+    caches.open(CACHE_NAME)
+      .then((cache) => cache.addAll(STATIC_FILES.map(richiestaFresca)))
+      .then(() => self.skipWaiting()),
+  );
 });
 
 self.addEventListener('activate', (event) => {
@@ -29,12 +47,46 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+self.addEventListener('message', (event) => {
+  if (event.data === 'skooling:aggiorna-subito') self.skipWaiting();
+});
+
+async function apriDallaRete(request) {
+  const cache = await caches.open(CACHE_NAME);
+  const salvata = () => cache.match(request).then((cached) => cached || cache.match('./index.html'));
+  try {
+    const attesa = new Promise((_, reject) => setTimeout(() => reject(new Error('rete lenta')), 3000));
+    const response = await Promise.race([fetch(request), attesa]);
+    if (response && response.ok) cache.put(request, response.clone());
+    return response;
+  } catch {
+    return (await salvata()) || fetch(request);
+  }
+}
+
 self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET' || new URL(event.request.url).origin !== self.location.origin) return;
+  const request = event.request;
+  if (request.method !== 'GET' || new URL(request.url).origin !== self.location.origin) return;
+
+  // L'apertura dell'app prova prima la rete: così, appena c'è collegamento,
+  // arriva la pagina nuova e non si resta fermi su una copia vecchia. Se la rete
+  // non risponde entro tre secondi si parte lo stesso con la copia salvata.
+  if (request.mode === 'navigate') {
+    event.respondWith(apriDallaRete(request));
+    return;
+  }
+
+  if (SVILUPPO_LOCALE) {
+    event.respondWith(apriDallaRete(request));
+    return;
+  }
+
+  // Tutto il resto viene dalla cache della versione in corso: i file dell'app
+  // restano coerenti tra loro, mai metà vecchi e metà nuovi.
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request).then((response) => {
-      if (response.ok) caches.open(CACHE_NAME).then((cache) => cache.put(event.request, response.clone()));
+    caches.open(CACHE_NAME).then((cache) => cache.match(request).then((cached) => cached || fetch(request).then((response) => {
+      if (response.ok) cache.put(request, response.clone());
       return response;
-    }).catch(() => caches.match('./index.html'))),
+    }).catch(() => cache.match('./index.html')))),
   );
 });

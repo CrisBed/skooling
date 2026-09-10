@@ -1,6 +1,6 @@
 // Gestione dei quaderni e delle loro pagine vettoriali.
 import { DB, createId } from './db.js';
-import { DrawingSurface, SurfaceGroup, attachToolbox, drawElement, canvasToJpeg, makePdfFromJpegs, downloadBlob } from './strumenti.js';
+import { DrawingSurface, SurfaceGroup, attachToolbox, drawElement, canvasToJpeg, makePdfFromJpegs, downloadBlob, creaGestoCondiviso } from './strumenti.js';
 
 function safeFilename(value) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'quaderno';
@@ -37,9 +37,17 @@ export class NotebookManager {
     this.saveToken2 = 0;
     this.canvas = document.querySelector('#notebook-canvas');
     this.canvas2 = document.querySelector('#notebook-canvas-2');
+    // Zoom del quaderno: un dito scrive, due dita ingrandiscono e spostano.
+    this.zoom = 1;
+    this.panX = 0;
+    this.panY = 0;
+    this.pinch = null;
+    // Un solo gesto per tutti e due i fogli: le due dita possono cadere su fogli diversi.
+    const gesto = creaGestoCondiviso();
+    const gestoDueDita = (fase, event, touches) => this.gestoDueDita(fase, touches);
     // due fogli: sinistro (offset 0) e destro (offset 1). onChange salva la pagina giusta.
-    this.surface = new DrawingSurface(this.canvas, { onChange: (elements) => this.savePage(0, elements) });
-    this.surface2 = new DrawingSurface(this.canvas2, { onChange: (elements) => this.savePage(1, elements) });
+    this.surface = new DrawingSurface(this.canvas, { gesto, onChange: (elements) => this.savePage(0, elements), onTouchGesture: gestoDueDita });
+    this.surface2 = new DrawingSurface(this.canvas2, { gesto, onChange: (elements) => this.savePage(1, elements), onTouchGesture: gestoDueDita });
     // un unico astuccio comanda entrambi i fogli (attivo = l'ultimo toccato)
     this.group = new SurfaceGroup([this.surface, this.surface2]);
     attachToolbox(document.querySelector('#notebook-tools'), this.group);
@@ -117,10 +125,12 @@ export class NotebookManager {
     document.querySelector('#notebook-subject').textContent = this.current.materia;
     document.querySelector('#editor-quaderno').hidden = false;
     document.body.classList.add('workspace-open');
+    this.azzeraZoom();
     this.showPage();
   }
 
   close() {
+    this.azzeraZoom();
     document.querySelector('#editor-quaderno').hidden = true;
     document.body.classList.remove('workspace-open');
     this.current = null;
@@ -128,6 +138,68 @@ export class NotebookManager {
     this.surface.setElements([]);
     this.surface2.setElements([]);
     this.renderList();
+    document.dispatchEvent(new CustomEvent('skooling:quaderno-chiuso'));
+  }
+
+  // ---- Zoom a due dita -----------------------------------------------------
+  // Il riquadro dei fogli si ingrandisce con una trasformazione CSS. I canvas
+  // restano gli stessi: le coordinate del disegno sono relative al foglio
+  // visibile, quindi si continua a scrivere nel punto giusto anche ingranditi.
+  gestoDueDita(fase, touches) {
+    const box = document.querySelector('#notebook-pages');
+    if (fase === 'start') {
+      if (touches.size < 2) return;
+      const [primo, secondo] = [...touches.values()];
+      const rect = box.getBoundingClientRect();
+      this.pinch = {
+        distanza: Math.hypot(primo.x - secondo.x, primo.y - secondo.y) || 1,
+        zoom: this.zoom,
+        panX: this.panX,
+        panY: this.panY,
+        // angolo del riquadro senza trasformazione (l'origine è in alto a sinistra)
+        originX: rect.left - this.panX,
+        originY: rect.top - this.panY,
+        mediaX: (primo.x + secondo.x) / 2,
+        mediaY: (primo.y + secondo.y) / 2,
+      };
+      return;
+    }
+    if (fase === 'move' && this.pinch && touches.size >= 2) {
+      const [primo, secondo] = [...touches.values()];
+      const distanza = Math.hypot(primo.x - secondo.x, primo.y - secondo.y) || 1;
+      const zoom = Math.max(1, Math.min(4, this.pinch.zoom * distanza / this.pinch.distanza));
+      const mediaX = (primo.x + secondo.x) / 2;
+      const mediaY = (primo.y + secondo.y) / 2;
+      // il punto del foglio che stava sotto le due dita ci resta anche dopo
+      const puntoX = (this.pinch.mediaX - this.pinch.originX - this.pinch.panX) / this.pinch.zoom;
+      const puntoY = (this.pinch.mediaY - this.pinch.originY - this.pinch.panY) / this.pinch.zoom;
+      this.applicaZoom(zoom, mediaX - this.pinch.originX - zoom * puntoX, mediaY - this.pinch.originY - zoom * puntoY);
+      return;
+    }
+    if (fase === 'end') this.pinch = null;
+  }
+
+  applicaZoom(zoom, panX, panY) {
+    const box = document.querySelector('#notebook-pages');
+    if (zoom <= 1.01) {
+      this.zoom = 1;
+      this.panX = 0;
+      this.panY = 0;
+    } else {
+      this.zoom = zoom;
+      // lo spostamento non può portare il foglio fuori dal riquadro
+      const limiteX = box.offsetWidth * (zoom - 1);
+      const limiteY = box.offsetHeight * (zoom - 1);
+      this.panX = Math.max(-limiteX, Math.min(0, panX));
+      this.panY = Math.max(-limiteY, Math.min(0, panY));
+    }
+    box.style.transformOrigin = '0 0';
+    box.style.transform = this.zoom === 1 ? '' : `translate(${this.panX}px, ${this.panY}px) scale(${this.zoom})`;
+  }
+
+  azzeraZoom() {
+    this.pinch = null;
+    this.applicaZoom(1, 0, 0);
   }
 
   // Prepara un foglio (sfondo giusto, contenuto, dito che scrive, misura)
@@ -171,6 +243,7 @@ export class NotebookManager {
 
   toggleDoppia() {
     this.doppia = !this.doppia;
+    this.azzeraZoom(); // cambia l'impaginazione: si riparte dalla misura naturale
     // in doppia l'indice di sinistra è sempre pari (coppie 1-2, 3-4, ...)
     if (this.doppia) this.pageIndex -= this.pageIndex % 2;
     const btn = document.querySelector('#notebook-two-pages');

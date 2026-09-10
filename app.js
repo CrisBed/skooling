@@ -36,6 +36,7 @@ export function navigate(view) {
   if (view === 'compiti') renderTasks();
   if (view === 'impostazioni') updateStorage();
   document.querySelector('#main-content').scrollTo?.(0, 0);
+  verificaAggiornamentoInSospeso();
 }
 
 export const App = { navigate, notify, showProgress, hideProgress };
@@ -54,7 +55,8 @@ function bindNavigation() {
   document.querySelectorAll('[data-go]').forEach((button) => button.addEventListener('click', () => navigate(button.dataset.go)));
   document.querySelectorAll('[data-dialog-close]').forEach((button) => button.addEventListener('click', () => button.closest('dialog').close()));
   document.addEventListener('skooling:message', (event) => notify(event.detail.text, event.detail.error));
-  document.addEventListener('skooling:reader-closed', () => renderLibrary());
+  document.addEventListener('skooling:reader-closed', () => { renderLibrary(); verificaAggiornamentoInSospeso(); });
+  document.addEventListener('skooling:quaderno-chiuso', () => verificaAggiornamentoInSospeso());
   const onlineStatus = () => {
     const pill = document.querySelector('#offline-state');
     pill.textContent = navigator.onLine ? 'Pronto offline' : 'Modalità aereo';
@@ -139,8 +141,7 @@ function makeBookCard(book) {
 async function openBook(id, page = 1) {
   showProgress('Apro il libro', 'Preparo la pagina…', 0.25);
   try {
-    PDFViewer.drawing.setDrawWithFinger(document.querySelector('#global-finger-draw').checked);
-    PDFViewer.annotationCanvas.classList.toggle('finger-draw', PDFViewer.drawing.drawWithFinger);
+    PDFViewer.setDrawWithFinger(document.querySelector('#global-finger-draw').checked);
     await PDFViewer.open(id, page);
   } catch (error) {
     notify(error.message, true);
@@ -285,10 +286,7 @@ function bindSettings() {
   const finger = document.querySelector('#global-finger-draw');
   finger.addEventListener('change', async () => {
     await DB.put('impostazioni', { id: 'disegna-dito', valore: finger.checked });
-    PDFViewer.drawing.setDrawWithFinger(finger.checked);
-    PDFViewer.annotationCanvas.classList.toggle('finger-draw', finger.checked);
-    notebooks.surface.setDrawWithFinger(finger.checked);
-    notebooks.canvas.classList.toggle('finger-draw', finger.checked);
+    PDFViewer.setDrawWithFinger(finger.checked);
   });
   document.querySelector('#export-backup').addEventListener('click', async () => {
     showProgress('Creo il backup', 'Raccolgo tutti i dati…', 0);
@@ -336,10 +334,52 @@ async function updateStorage() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Aggiornamento a distanza. Skooling non ha un server: la versione nuova arriva
+// dal service worker. All'avvio e a ogni ritorno online l'app chiede se c'è una
+// versione nuova; quando c'è, il service worker nuovo prende il posto del
+// vecchio e l'app si ricarica da sola. Chi la usa non deve fare nulla, e non
+// resta bloccato su una copia vecchia.
+// ---------------------------------------------------------------------------
+let aggiornamentoInSospeso = false;
+
+function applicaAggiornamento() {
+  // Se c'è un libro o un quaderno aperto si aspetta: il lavoro è già salvato,
+  // ma ricaricare sotto le mani mentre si scrive sarebbe sgradevole.
+  if (document.body.classList.contains('workspace-open')) {
+    aggiornamentoInSospeso = true;
+    notify('Skooling si è aggiornato. La versione nuova parte appena chiudi il libro o il quaderno.');
+    return;
+  }
+  notify('Skooling si è aggiornato.');
+  setTimeout(() => location.reload(), 800);
+}
+
+export function verificaAggiornamentoInSospeso() {
+  if (!aggiornamentoInSospeso || document.body.classList.contains('workspace-open')) return;
+  aggiornamentoInSospeso = false;
+  location.reload();
+}
+
 async function registerServiceWorker() {
-  if ('serviceWorker' in navigator) {
-    try { await navigator.serviceWorker.register('./sw.js', { scope: './' }); }
-    catch { notify('Per usare Skooling offline, aprilo da un indirizzo sicuro e ricarica.', true); }
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    // updateViaCache 'none': il file sw.js si scarica sempre dalla rete, mai
+    // dalla cache del browser. È questo che fa arrivare l'aggiornamento subito.
+    const registration = await navigator.serviceWorker.register('./sw.js', { scope: './', updateViaCache: 'none' });
+    const giaControllato = Boolean(navigator.serviceWorker.controller);
+    let ricaricato = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!giaControllato || ricaricato) return;
+      ricaricato = true;
+      applicaAggiornamento();
+    });
+    const controlla = () => { if (navigator.onLine) registration.update().catch(() => {}); };
+    controlla();
+    window.addEventListener('online', controlla);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') controlla(); });
+  } catch {
+    notify('Per usare Skooling offline, aprilo da un indirizzo sicuro e ricarica.', true);
   }
 }
 
@@ -353,8 +393,7 @@ async function start() {
     bindSettings();
     const fingerSetting = await DB.get('impostazioni', 'disegna-dito');
     document.querySelector('#global-finger-draw').checked = Boolean(fingerSetting?.valore);
-    PDFViewer.drawing.setDrawWithFinger(Boolean(fingerSetting?.valore));
-    notebooks.surface.setDrawWithFinger(Boolean(fingerSetting?.valore));
+    PDFViewer.setDrawWithFinger(Boolean(fingerSetting?.valore));
     await Promise.all([renderLibrary(), notebooks.renderList(), renderTasks(), updateStorage()]);
     await registerServiceWorker();
   } catch (error) {

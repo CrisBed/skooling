@@ -55,12 +55,17 @@ I PDF vengono copiati nell'archivio interno dell'app. Dopo l'importazione il fil
 4. Scegli penna, evidenziatore, sottolineatura, testo o forma.
 5. La Apple Pencil disegna sempre. Il dito scorre e ingrandisce; l'opzione **Disegna anche col dito** si trova in Impostazioni.
 6. Attiva **Sola lettura** per scorrere senza lasciare segni.
+7. Il pulsante **2 pagine** mostra due pagine affiancate, come un libro aperto. Si scrive su tutte e due e l'astuccio è lo stesso. Le pagine vanno a coppie: 1-2, 3-4, 5-6. Il pulsante **1 pagina** torna alla pagina singola.
+
+Due dita ingrandiscono e spostano la pagina anche quando il dito disegna: appena appoggi il secondo dito il segno appena iniziato viene tolto, così non restano scarabocchi.
 
 Con lo strumento **Testo**, tocca uno spazio libero e scrivi. Tocca una casella di testo esistente per spostarla; trascina il quadratino nell'angolo per ridimensionarla. La gomma elimina per intero il segno toccato. Ogni modifica si salva automaticamente.
 
 ### Quaderni
 
 Apri **Quaderni**, scegli **Nuovo quaderno** e indica titolo, materia e foglio a righe o quadretti. Dentro il quaderno puoi aggiungere ed eliminare pagine. I pulsanti in alto esportano la pagina corrente in PNG o tutto il quaderno in PDF.
+
+Nel quaderno il dito scrive sempre, senza Apple Pencil. **Due dita ingrandiscono e spostano il foglio**: appoggia due dita e allontanale per ingrandire, avvicinale per tornare alla misura naturale, muovile insieme per spostare. Il segno iniziato con un dito solo viene tolto appena arriva il secondo, quindi ingrandire non lascia mai segni per sbaglio. Il pulsante **2 pagine** apre due fogli affiancati, scrivibili tutti e due.
 
 ### Compiti
 
@@ -82,14 +87,23 @@ L'importazione sostituisce i dati già presenti. Conserva sempre una copia recen
 
 ## Aggiornare l'app
 
-Dopo una modifica a qualunque file statico:
+L'aggiornamento arriva da solo. Chi usa Skooling non deve fare nulla: né reinstallare, né togliere e rimettere l'icona, né svuotare qualcosa.
 
-1. Apri `sw.js`.
-2. Cambia la prima costante, per esempio da `skooling-v5` a `skooling-v6`.
-3. Pubblica di nuovo tutti i file.
-4. Apri Skooling online una volta e poi riaprila. Il vecchio contenuto in cache viene eliminato automaticamente.
+Come funziona:
+
+1. Chi cura l'app modifica i file e lancia `pubblica.sh`.
+2. Lo script alza da solo il numero di versione in `sw.js`, per esempio da `skooling-v8` a `skooling-v9`, e pubblica tutto.
+3. Alla prima apertura di Skooling con la rete attiva, l'app controlla se c'è una versione nuova.
+4. Se c'è, la scarica, la mette al posto della vecchia e si ricarica da sola. Compare la scritta "Skooling si è aggiornato".
+5. Se in quel momento è aperto un libro o un quaderno, l'app aspetta: la versione nuova parte alla chiusura del libro o del quaderno, così non interrompe il lavoro.
+
+Senza rete Skooling continua a funzionare con la versione che ha già. Il controllo si ripete alla prossima apertura con la rete.
+
+Questo vale per il **codice** dell'app, cioè le funzioni e l'aspetto. NON vale per i **contenuti**: i libri, i quaderni, le annotazioni e i compiti restano sul dispositivo e non viaggiano. Aggiungere un libro alla libreria resta un'azione da fare sul dispositivo stesso.
 
 Se aggiungi un nuovo file necessario all'app, inseriscilo anche nell'elenco `STATIC_FILES` di `sw.js`.
+
+Nota per chi sviluppa: sul server locale (`python3 serve.py`, indirizzo `localhost` o `127.0.0.1`) vince sempre la rete. Una modifica si vede ricaricando la pagina, senza dover ripulire a mano service worker e cache.
 
 ## Privacy e spazio
 

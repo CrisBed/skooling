@@ -111,6 +111,7 @@
       <button id="close-reader" class="icon-button" type="button" aria-label="Chiudi il libro">←</button>
       <div class="workspace-title"><strong id="reader-title">Libro</strong><span id="reader-subject"></span></div>
       <div class="workspace-actions">
+        <button id="reader-two-pages" class="small-button" type="button" aria-pressed="false">2 pagine</button>
         <button id="toggle-thumbnails" class="icon-button" type="button" aria-label="Mostra miniature">▦</button>
         <button id="toggle-bookmark" class="icon-button" type="button" aria-label="Aggiungi segnalibro">☆</button>
         <button id="toggle-night" class="icon-button" type="button" aria-label="Modalità notte">◐</button>
@@ -122,9 +123,15 @@
       <div class="reader-area">
         <div id="reader-loading" class="loading-card" role="status" hidden><span class="spinner"></span><span>Preparo la pagina…</span></div>
         <div id="pdf-scroll" class="page-scroll">
-          <div id="pdf-page-wrap" class="page-wrap">
-            <canvas id="pdf-canvas" aria-label="Pagina del libro"></canvas>
-            <canvas id="pdf-annotations" class="drawing-canvas" aria-label="Annotazioni sulla pagina"></canvas>
+          <div id="pdf-pages" class="pdf-pages">
+            <div id="pdf-page-wrap" class="page-wrap">
+              <canvas id="pdf-canvas" aria-label="Pagina del libro"></canvas>
+              <canvas id="pdf-annotations" class="drawing-canvas" aria-label="Annotazioni sulla pagina"></canvas>
+            </div>
+            <div id="pdf-page-wrap-2" class="page-wrap" hidden>
+              <canvas id="pdf-canvas-2" aria-label="Pagina destra del libro"></canvas>
+              <canvas id="pdf-annotations-2" class="drawing-canvas" aria-label="Annotazioni sulla pagina destra"></canvas>
+            </div>
           </div>
         </div>
         <div class="page-controls">

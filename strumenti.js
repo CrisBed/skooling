@@ -130,6 +130,11 @@ export class HistoryStack {
     this.index = 0;
   }
 
+  // Ultimo stato salvato: serve per tornare indietro da un gesto annullato.
+  current() {
+    return this.states[this.index] ? clone(this.states[this.index]) : [];
+  }
+
   push(state) {
     this.states = this.states.slice(0, this.index + 1);
     this.states.push(clone(state));
@@ -239,6 +244,19 @@ export function drawElement(context, element, width, height, selected = false) {
   context.restore();
 }
 
+// Stato del gesto a due dita, condiviso da più fogli affiancati: le due dita
+// possono cadere su fogli diversi (doppia pagina) e devono comunque contare
+// come un solo gesto. `touches` tiene i tocchi vivi in coordinate schermo.
+export function creaGestoCondiviso() {
+  return { touches: new Map(), attivo: false, fogli: [] };
+}
+
+// La casella di testo può essere già stata tolta dal foglio: toglierla di nuovo
+// non deve fermare l'app.
+function togliDalFoglio(elemento) {
+  try { elemento.remove(); } catch { /* già tolta */ }
+}
+
 export class DrawingSurface {
   constructor(canvas, options = {}) {
     this.canvas = canvas;
@@ -258,6 +276,8 @@ export class DrawingSurface {
     this.editingId = null;   // id della casella di testo aperta per scriverci
     this.textEditor = null;  // l'elemento HTML editabile in-place (apre la tastiera grande)
     this.pointers = new Map();
+    this.gesto = options.gesto || creaGestoCondiviso();
+    this.gesto.fogli.push(this);
     this.history = new HistoryStack(30);
     this.history.reset([]);
     this.onChange = options.onChange || (() => {});
@@ -280,11 +300,15 @@ export class DrawingSurface {
   }
 
   resize() {
+    // Misura di impaginazione, non quella a schermo: se il foglio è ingrandito
+    // con una trasformazione CSS la risoluzione del canvas non deve cambiare.
     const rect = this.canvas.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
+    const width = this.canvas.offsetWidth || rect.width;
+    const height = this.canvas.offsetHeight || rect.height;
+    if (!width || !height) return;
     const ratio = Math.min(2, globalThis.devicePixelRatio || 1);
-    const pixelWidth = Math.round(rect.width * ratio);
-    const pixelHeight = Math.round(rect.height * ratio);
+    const pixelWidth = Math.round(width * ratio);
+    const pixelHeight = Math.round(height * ratio);
     if (this.canvas.width !== pixelWidth || this.canvas.height !== pixelHeight) {
       this.canvas.width = pixelWidth;
       this.canvas.height = pixelHeight;
@@ -293,6 +317,7 @@ export class DrawingSurface {
   }
 
   setElements(elements = []) {
+    this.scartaEditorTesto(); // cambio pagina: la casella aperta non deve restare appesa
     this.elements = clone(elements);
     this.selectedId = null;
     this.history.reset(this.elements);
@@ -367,17 +392,47 @@ export class DrawingSurface {
 
   pointFromEvent(event) { return normalizePoint(event, this.canvas.getBoundingClientRect()); }
 
+  // Un gesto è in corso quando il dito non scrive (allora scorre e ingrandisce)
+  // oppure quando sono arrivate due dita insieme.
+  inGesto(event) {
+    return event.pointerType === 'touch' && (this.gesto.attivo || !this.drawWithFinger);
+  }
+
+  // Il secondo dito trasforma il tocco in gesto: il segno appena cominciato
+  // viene tolto, così l'ingrandimento non lascia scarabocchi sul foglio.
+  annullaTrattoInCorso() {
+    const active = this.active;
+    if (!active) return;
+    this.active = null;
+    if (active.kind === 'erase') this.elements = this.history.current();
+    else if (active.kind === 'move-text') {
+      const element = this.elements.find((item) => item.id === active.id);
+      if (element) Object.assign(element, active.original);
+    } else if (active.id) {
+      this.elements = this.elements.filter((item) => item.id !== active.id);
+      if (this.selectedId === active.id) this.selectedId = null;
+    }
+    this.render();
+  }
+
   pointerDown(event) {
+    if (event.pointerType === 'touch') this.gesto.touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
     this.pointers.set(event.pointerId, this.pointFromEvent(event));
     if (this.textEditor) { this.textEditor.blur(); return; } // il tocco conferma/chiude la casella aperta
-    if (event.pointerType === 'touch' && !this.drawWithFinger) {
-      this.onTouchGesture('start', event, this.pointers);
+    if (event.pointerType === 'touch' && this.gesto.touches.size >= 2 && !this.gesto.attivo) {
+      this.gesto.attivo = true;
+      for (const foglio of this.gesto.fogli) foglio.annullaTrattoInCorso();
+    }
+    if (this.inGesto(event)) {
+      this.onTouchGesture('start', event, this.gesto.touches);
       return;
     }
     if (!this.canDraw(event)) return;
     this.onActivate(); // questo foglio diventa quello attivo per astuccio, testo e annulla
     event.preventDefault();
-    this.canvas.setPointerCapture?.(event.pointerId);
+    // Se il puntatore è già stato rilasciato la cattura non serve e non deve
+    // interrompere il tratto: si prosegue senza.
+    try { this.canvas.setPointerCapture?.(event.pointerId); } catch { /* puntatore già chiuso */ }
     const point = this.pointFromEvent(event);
     if (this.tool === 'gomma') {
       this.active = { kind: 'erase', last: point, changed: this.eraseAt(point) };
@@ -420,9 +475,12 @@ export class DrawingSurface {
 
   pointerMove(event) {
     const point = this.pointFromEvent(event);
+    if (event.pointerType === 'touch' && this.gesto.touches.has(event.pointerId)) {
+      this.gesto.touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    }
     this.pointers.set(event.pointerId, point);
-    if (event.pointerType === 'touch' && !this.drawWithFinger) {
-      this.onTouchGesture('move', event, this.pointers);
+    if (this.inGesto(event)) {
+      this.onTouchGesture('move', event, this.gesto.touches);
       return;
     }
     if (!this.active || !this.canDraw(event)) return;
@@ -454,8 +512,13 @@ export class DrawingSurface {
   }
 
   pointerUp(event) {
-    if (event.pointerType === 'touch' && !this.drawWithFinger) this.onTouchGesture('end', event, this.pointers);
+    const gesto = this.inGesto(event);
+    if (gesto) this.onTouchGesture('end', event, this.gesto.touches);
+    if (event.pointerType === 'touch') this.gesto.touches.delete(event.pointerId);
     this.pointers.delete(event.pointerId);
+    // Finché resta a terra un dito del gesto non si torna a scrivere.
+    if (this.gesto.attivo && this.gesto.touches.size === 0) this.gesto.attivo = false;
+    if (gesto) return;
     if (!this.active || !this.canDraw(event)) return;
     if (this.active.kind === 'erase') {
       const changed = this.active.changed;
@@ -511,9 +574,9 @@ export class DrawingSurface {
     const chiudi = () => {
       if (this.textEditor !== editor) return;
       const testo = editor.textContent.replace(/ /g, ' ').replace(/\s+$/,'').trim();
-      editor.remove();
       this.textEditor = null;
       this.editingId = null;
+      togliDalFoglio(editor);
       const el = this.elements.find((e) => e.id === element.id);
       if (el) {
         if (!testo) this.elements = this.elements.filter((e) => e.id !== element.id);
@@ -526,6 +589,15 @@ export class DrawingSurface {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); editor.blur(); }
       if (e.key === 'Escape') { e.preventDefault(); editor.blur(); }
     });
+  }
+
+  // Toglie la casella senza salvare: si usa quando il foglio cambia sotto.
+  scartaEditorTesto() {
+    if (!this.textEditor) return;
+    const editor = this.textEditor;
+    this.textEditor = null;
+    this.editingId = null;
+    togliDalFoglio(editor);
   }
 
   commit() {

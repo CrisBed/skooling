@@ -3,6 +3,7 @@ import { DB, createId } from './db.js';
 import { PDFViewer, extractPdfCover } from './pdf-viewer.js';
 import { NotebookManager } from './quaderni.js';
 import { AlbumManager, ridimensionaFoto } from './album.js';
+import { cercaNeiLibri, normalizza } from './ricerca.js';
 import { downloadBlob } from './strumenti.js';
 
 const state = { books: [], tasks: [], taskFilter: 'todo', coverUrls: [], fotoCompito: null, urlCompiti: [] };
@@ -154,11 +155,11 @@ function makeBookCard(book) {
   return article;
 }
 
-async function openBook(id, page = 1) {
+async function openBook(id, page = 1, evidenzia = '') {
   showProgress('Apro il libro', 'Preparo la pagina…', 0.25);
   try {
     PDFViewer.setDrawWithFinger(document.querySelector('#global-finger-draw').checked);
-    await PDFViewer.open(id, page);
+    await PDFViewer.open(id, page, evidenzia);
   } catch (error) {
     notify(error.message, true);
   } finally {
@@ -175,17 +176,112 @@ function openBookDialog(book) {
 
 async function deleteBook(book) {
   if (!confirm(`Eliminare “${book.titolo}” e tutte le sue annotazioni?`)) return;
+  chiudiRicerca();
   await DB.delete('libri', book.id);
+  // Via anche il testo indicizzato: senza il libro non serve più a nessuno.
+  await DB.delete('indicelibri', book.id).catch(() => {});
   await DB.deleteWhere('annotazioni', (item) => item.idLibro === book.id);
   await DB.deleteWhere('segnalibri', (item) => item.idLibro === book.id);
   await renderLibrary();
   notify('Libro eliminato.');
 }
 
+// ---------------------------------------------------------------------------
+// Ricerca dentro i libri. Il testo dentro il PDF ce lo mette l'OCR dello
+// scanner: Skooling lo legge soltanto. Un libro ancora senza testo non è un
+// errore, viene solo lasciato fuori dai risultati e detto in fondo, così si sa
+// quali mancano ancora di passare nello scanner.
+// ---------------------------------------------------------------------------
+function evidenziaNellaFrase(frase, termine) {
+  const semplice = normalizza(frase);
+  const da = semplice.indexOf(normalizza(termine));
+  if (da < 0) return escapeHtml(frase);
+  return `${escapeHtml(frase.slice(0, da))}<mark>${escapeHtml(frase.slice(da, da + termine.length))}</mark>${escapeHtml(frase.slice(da + termine.length))}`;
+}
+
+function chiudiRicerca() {
+  document.querySelector('#search-results').hidden = true;
+  document.querySelector('#book-grid').hidden = false;
+  document.querySelector('#library-empty').hidden = state.books.length > 0;
+}
+
+async function cercaNelTestoDeiLibri() {
+  const richiesta = document.querySelector('#book-search').value.trim();
+  if (richiesta.length < 2) return notify('Scrivi almeno due lettere da cercare.', true);
+  const libri = state.books;
+  if (!libri.length) return notify('Non c’è ancora nessun libro in libreria.', true);
+
+  const pannello = document.querySelector('#search-results');
+  const elenco = document.querySelector('#search-results-list');
+  const nota = document.querySelector('#search-results-note');
+  document.querySelector('#book-grid').hidden = true;
+  document.querySelector('#library-empty').hidden = true;
+  document.querySelector('#search-results-title').textContent = `“${richiesta}”`;
+  elenco.replaceChildren();
+  nota.hidden = true;
+  pannello.hidden = false;
+
+  let trovati = 0;
+  showProgress('Cerco dentro i libri', 'Preparo la ricerca…', 0);
+  try {
+    const { senzaTesto } = await cercaNeiLibri(libri, richiesta, {
+      onProgress: ({ libro, fatti, totale, avanzamentoLibro }) => {
+        const quota = (fatti + avanzamentoLibro) / Math.max(1, totale);
+        showProgress('Cerco dentro i libri', libro ? `${libro.titolo} · ${fatti + 1} di ${totale}` : 'Finito', quota);
+      },
+      onLibro: ({ libro, pagine }) => {
+        if (!pagine.length) return;
+        trovati += pagine.length;
+        elenco.append(schedaRisultati(libro, pagine, richiesta));
+      },
+    });
+    if (!trovati) {
+      const vuoto = document.createElement('p');
+      vuoto.className = 'search-empty';
+      vuoto.textContent = 'Nessuna pagina con questa parola nei libri che hanno il testo.';
+      elenco.append(vuoto);
+    }
+    if (senzaTesto.length) {
+      nota.textContent = `Ricerca non disponibile per: ${senzaTesto.map((libro) => libro.titolo).join(', ')}. `
+        + 'Sono scansioni senza testo: lo avranno dopo il passaggio nello scanner con il riconoscimento del testo.';
+      nota.hidden = false;
+    }
+  } catch (error) {
+    notify('La ricerca non è riuscita. Riprova.', true);
+  } finally {
+    hideProgress();
+  }
+}
+
+function schedaRisultati(libro, pagine, richiesta) {
+  const blocco = document.createElement('div');
+  blocco.className = 'search-book';
+  const titolo = document.createElement('h3');
+  titolo.textContent = `${libro.titolo} · ${pagine.length} ${pagine.length === 1 ? 'pagina' : 'pagine'}`;
+  blocco.append(titolo);
+  for (const trovata of pagine) {
+    const voce = document.createElement('button');
+    voce.type = 'button';
+    voce.className = 'search-hit';
+    voce.innerHTML = `<span class="search-page">Pagina ${trovata.numero}</span>`
+      + `<span class="search-phrase">${evidenziaNellaFrase(trovata.frase, richiesta)}</span>`;
+    voce.addEventListener('click', () => openBook(libro.id, trovata.numero, richiesta));
+    blocco.append(voce);
+  }
+  return blocco;
+}
+
 function bindLibrary() {
+  document.querySelector('#search-inside').addEventListener('click', cercaNelTestoDeiLibri);
+  document.querySelector('#search-close').addEventListener('click', chiudiRicerca);
+  document.querySelector('#book-search').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') { event.preventDefault(); cercaNelTestoDeiLibri(); }
+  });
   document.querySelector('#pdf-input').addEventListener('change', (event) => importPdfs(event.target.files));
-  document.querySelector('#book-search').addEventListener('input', renderLibrary);
-  document.querySelector('#book-subject-filter').addEventListener('change', renderLibrary);
+  // Cambiare la richiesta o la materia vuol dire ricominciare: i risultati di
+  // prima si chiudono, altrimenti resterebbero appesi sopra la libreria.
+  document.querySelector('#book-search').addEventListener('input', () => { chiudiRicerca(); renderLibrary(); });
+  document.querySelector('#book-subject-filter').addEventListener('change', () => { chiudiRicerca(); renderLibrary(); });
   document.querySelector('#book-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const id = document.querySelector('#edit-book-id').value;

@@ -48,7 +48,16 @@
         <div class="filters" role="search">
           <label class="search-field"><span class="sr-only">Cerca libri</span><input id="book-search" type="search" placeholder="Cerca un libro"></label>
           <label><span class="sr-only">Filtra per materia</span><select id="book-subject-filter"><option value="">Tutte le materie</option></select></label>
+          <button id="search-inside" class="button secondary" type="button"><span aria-hidden="true">⌕</span> Cerca nel testo</button>
         </div>
+        <section id="search-results" class="search-results" aria-live="polite" hidden>
+          <div class="search-results-head">
+            <div><p class="eyebrow">Dentro i libri</p><strong id="search-results-title">Ricerca</strong></div>
+            <button id="search-close" class="button secondary" type="button">Torna ai libri</button>
+          </div>
+          <div id="search-results-list" class="search-results-list"></div>
+          <p id="search-results-note" class="search-note" hidden></p>
+        </section>
         <div id="library-empty" class="empty-state">
           <div class="empty-book" aria-hidden="true"><span>S</span></div>
           <h2>Il primo libro ti aspetta</h2>

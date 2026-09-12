@@ -1,6 +1,6 @@
 // Persistenza locale di Skooling. Nessun dato lascia il dispositivo.
 export const DB_NAME = 'skooling-db';
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 export const STORE_NAMES = [
   'libri',
   'annotazioni',
@@ -11,6 +11,11 @@ export const STORE_NAMES = [
   'impostazioni',
   'foto',
 ];
+
+// L'indice del testo dei libri si ricostruisce leggendo di nuovo i PDF, quindi
+// non entra nel backup: ci farebbe crescere il file di molti megabyte senza
+// aggiungere niente che non si possa rifare.
+export const STORE_NAMES_DERIVATI = ['indicelibri'];
 
 // Gli archivi che ci sono da sempre: un backup deve averli tutti, altrimenti
 // non e' un backup buono. Quelli aggiunti dopo, come le foto dell'album,
@@ -35,6 +40,7 @@ const STORE_OPTIONS = {
   compiti: { keyPath: 'id' },
   impostazioni: { keyPath: 'id' },
   foto: { keyPath: 'id' },
+  indicelibri: { keyPath: 'id' },
 };
 
 let openPromise;
@@ -116,7 +122,7 @@ function openDatabase() {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
       request.onupgradeneeded = () => {
         const database = request.result;
-        for (const name of STORE_NAMES) {
+        for (const name of [...STORE_NAMES, ...STORE_NAMES_DERIVATI]) {
           if (!database.objectStoreNames.contains(name)) {
             const store = database.createObjectStore(name, STORE_OPTIONS[name]);
             if (name === 'annotazioni') store.createIndex('libroPagina', ['idLibro', 'pagina']);

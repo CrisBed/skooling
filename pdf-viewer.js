@@ -2,6 +2,7 @@
 import * as pdfjsLib from './vendor/pdf.mjs';
 import { DB } from './db.js';
 import { DrawingSurface, SurfaceGroup, attachToolbox, creaGestoCondiviso, creaRilevatoreSwipe, ditaAppoggiate } from './strumenti.js';
+import { rettangoliDaEvidenziare } from './ricerca.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = './vendor/pdf.worker.mjs';
 
@@ -61,6 +62,9 @@ class Reader {
     // Il foglio non lo scorre più il browser: lo scorre l'app, così la penna
     // può scrivere senza che la pagina le scappi sotto.
     this.ultimoPunto = null;
+    // La parola arrivata dalla ricerca: si segna in giallo sulla pagina finché
+    // non si cambia libro.
+    this.evidenzia = '';
     this.schermoPieno = false;
     this.astuccioAperto = false;
     // Un solo gesto per le due pagine: le due dita possono cadere su fogli diversi.
@@ -134,9 +138,10 @@ class Reader {
     });
   }
 
-  async open(bookId, page) {
+  async open(bookId, page, evidenzia = '') {
     this.book = await DB.get('libri', bookId);
     if (!this.book) throw new Error('Questo libro non è più nella libreria.');
+    this.evidenzia = String(evidenzia || '');
     this.root.hidden = false;
     document.body.classList.add('workspace-open');
     document.querySelector('#reader-title').textContent = this.book.titolo;
@@ -172,6 +177,7 @@ class Reader {
     // ritrovare il pulsante per chiudere, non una pagina senza comandi.
     this.setSchermoPieno(false);
     this.swipe.annulla();
+    this.evidenzia = '';
     this.root.hidden = true;
     document.body.classList.remove('workspace-open');
     document.dispatchEvent(new CustomEvent('skooling:reader-closed'));
@@ -223,9 +229,11 @@ class Reader {
     canvas.style.height = `${cssHeight}px`;
     wrap.style.width = `${cssWidth}px`;
     wrap.style.height = `${cssHeight}px`;
-    const task = page.render({ canvasContext: canvas.getContext('2d'), viewport });
+    const contesto = canvas.getContext('2d');
+    const task = page.render({ canvasContext: contesto, viewport });
     if (offset) this.renderTask2 = task; else this.renderTask = task;
     await task.promise;
+    await this.segnaParolaCercata(page, contesto, viewport);
     surface.setElements(annotations.filter((item) => item.idLibro === this.book.id && item.pagina === numero));
   }
 
@@ -235,6 +243,23 @@ class Reader {
   // canvas facevano scattare un avviso di errore anche quando la pagina si
   // vedeva benissimo. Se nel frattempo è arrivata una richiesta più nuova,
   // questa si ferma in silenzio: a disegnare ci pensa l'ultima.
+  // Segna in giallo la parola arrivata dalla ricerca. Si disegna sopra la
+  // pagina, sotto alle annotazioni: così resta visibile ma non copre i segni.
+  async segnaParolaCercata(page, contesto, viewport) {
+    if (!this.evidenzia) return;
+    try {
+      const contenuto = await page.getTextContent();
+      const rettangoli = rettangoliDaEvidenziare(contenuto, viewport, this.evidenzia);
+      if (!rettangoli.length) return;
+      contesto.save();
+      contesto.fillStyle = 'rgba(255, 214, 51, 0.42)';
+      for (const area of rettangoli) contesto.fillRect(area.x, area.y, area.larghezza, area.altezza);
+      contesto.restore();
+    } catch {
+      // Una pagina senza testo non si evidenzia: si mostra e basta.
+    }
+  }
+
   async renderPage() {
     if (!this.pdf) return;
     const corsa = ++this.renderCorsa;

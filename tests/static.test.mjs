@@ -16,7 +16,7 @@ test('la shell contiene navigazione, import PDF e viste principali', async () =>
 });
 
 test('i moduli applicativi usano soltanto import locali', async () => {
-  const names = ['app.js', 'db.js', 'pdf-viewer.js', 'quaderni.js', 'strumenti.js', 'album.js'];
+  const names = ['app.js', 'db.js', 'pdf-viewer.js', 'quaderni.js', 'strumenti.js', 'album.js', 'ricerca.js'];
   for (const name of names) {
     const source = await readFile(new URL(`../${name}`, import.meta.url), 'utf8');
     assert.doesNotMatch(source, /https?:\/\/|(?:src|href)\s*=\s*['"]\/\//i, `${name} contiene un URL remoto`);
@@ -28,7 +28,7 @@ test('i moduli applicativi usano soltanto import locali', async () => {
 
 test('il service worker include ogni risorsa statica essenziale', async () => {
   const sw = await readFile(new URL('../sw.js', import.meta.url), 'utf8');
-  const required = ['index.html', 'style.css', 'app.js', 'db.js', 'pdf-viewer.js', 'quaderni.js', 'strumenti.js', 'album.js', 'manifest.webmanifest', 'vendor/pdf.mjs', 'vendor/pdf.worker.mjs'];
+  const required = ['index.html', 'style.css', 'app.js', 'db.js', 'pdf-viewer.js', 'quaderni.js', 'strumenti.js', 'album.js', 'ricerca.js', 'manifest.webmanifest', 'vendor/pdf.mjs', 'vendor/pdf.worker.mjs'];
   for (const file of required) assert.match(sw, new RegExp(file.replaceAll('.', '\\.')));
 });
 
@@ -109,4 +109,16 @@ test('i quaderni offrono tutti e cinque i tipi di foglio', async () => {
 test('lo strumento per spostare c\'è in tutti e due gli astucci', async () => {
   const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
   assert.equal((html.match(/data-tool="sposta"/g) || []).length, 2);
+});
+
+test('la barra in basso si adatta al numero di sezioni', async () => {
+  // Aggiungendo una sezione, una barra a colonne fisse manderebbe l'ultima
+  // voce a capo su schermo stretto.
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  const css = await readFile(new URL('../style.css', import.meta.url), 'utf8');
+  const sezioni = (html.match(/data-go="/g) || []).length;
+  assert.ok(sezioni >= 5, 'le sezioni di navigazione sono almeno cinque');
+  const barra = css.split('}').find((regola) => /\.main-nav \{/.test(regola) && /inset: auto 0 0 0/.test(regola));
+  assert.ok(barra, 'manca la regola della barra in basso');
+  assert.doesNotMatch(barra, /grid-template-columns:\s*repeat\(\d+/, 'la barra in basso ha un numero fisso di colonne');
 });

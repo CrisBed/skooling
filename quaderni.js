@@ -1,6 +1,6 @@
 // Gestione dei quaderni e delle loro pagine vettoriali.
 import { DB, createId } from './db.js';
-import { DrawingSurface, SurfaceGroup, attachToolbox, drawElement, canvasToJpeg, makePdfFromJpegs, downloadBlob, creaGestoCondiviso } from './strumenti.js';
+import { DrawingSurface, SurfaceGroup, attachToolbox, drawElement, canvasToJpeg, makePdfFromJpegs, downloadBlob, creaGestoCondiviso, creaRilevatoreSwipe } from './strumenti.js';
 
 function safeFilename(value) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'quaderno';
@@ -42,6 +42,10 @@ export class NotebookManager {
     this.panX = 0;
     this.panY = 0;
     this.pinch = null;
+    // Sfioramento orizzontale: cambia pagina senza toccare le frecce.
+    this.swipe = creaRilevatoreSwipe();
+    this.schermoPieno = false;
+    this.astuccioAperto = false;
     // Un solo gesto per tutti e due i fogli: le due dita possono cadere su fogli diversi.
     const gesto = creaGestoCondiviso();
     const gestoDueDita = (fase, event, touches) => this.gestoDueDita(fase, touches);
@@ -81,6 +85,8 @@ export class NotebookManager {
     document.querySelector('#notebook-delete-page').addEventListener('click', () => this.deletePage());
     document.querySelector('#export-notebook-page').addEventListener('click', () => this.exportPage());
     document.querySelector('#export-notebook-pdf').addEventListener('click', () => this.exportPdf());
+    document.querySelector('#notebook-fullscreen').addEventListener('click', () => this.setSchermoPieno(!this.schermoPieno));
+    document.querySelector('#notebook-exit-fullscreen').addEventListener('click', () => this.setSchermoPieno(false));
     document.querySelector('#toggle-notebook-tools').addEventListener('click', (event) => {
       const tools = document.querySelector('#notebook-tools');
       tools.hidden = !tools.hidden;
@@ -131,6 +137,10 @@ export class NotebookManager {
 
   close() {
     this.azzeraZoom();
+    // Il quaderno successivo si apre con le barre in vista: chi riapre deve
+    // ritrovare il pulsante per chiudere, non un foglio senza comandi.
+    this.setSchermoPieno(false);
+    this.swipe.annulla();
     document.querySelector('#editor-quaderno').hidden = true;
     document.body.classList.remove('workspace-open');
     this.current = null;
@@ -148,6 +158,7 @@ export class NotebookManager {
   gestoDueDita(fase, touches) {
     const box = document.querySelector('#notebook-pages');
     if (fase === 'start') {
+      this.swipe.inizio(touches);
       if (touches.size < 2) return;
       const [primo, secondo] = [...touches.values()];
       const rect = box.getBoundingClientRect();
@@ -164,6 +175,7 @@ export class NotebookManager {
       };
       return;
     }
+    if (fase === 'move') this.swipe.muovi(touches);
     if (fase === 'move' && this.pinch && touches.size >= 2) {
       const [primo, secondo] = [...touches.values()];
       const distanza = Math.hypot(primo.x - secondo.x, primo.y - secondo.y) || 1;
@@ -176,7 +188,33 @@ export class NotebookManager {
       this.applicaZoom(zoom, mediaX - this.pinch.originX - zoom * puntoX, mediaY - this.pinch.originY - zoom * puntoY);
       return;
     }
-    if (fase === 'end') this.pinch = null;
+    if (fase !== 'end') return;
+    this.pinch = null;
+    // A foglio ingrandito le dita servono a spostare e a ridurre: si cambia
+    // pagina soltanto quando il foglio è alla sua misura naturale.
+    const direzione = this.zoom <= 1.01 ? this.swipe.fine(touches) : (this.swipe.annulla(), 0);
+    if (direzione) this.goTo(this.pageIndex + direzione * (this.doppia ? 2 : 1));
+  }
+
+  // Vista a schermo intero: restano soltanto i fogli, senza barra in alto,
+  // controlli in basso e astuccio. Si esce col pulsante che resta in un angolo
+  // oppure toccando di nuovo il pulsante nella barra.
+  setSchermoPieno(attivo) {
+    this.schermoPieno = Boolean(attivo);
+    document.querySelector('#editor-quaderno').classList.toggle('schermo-pieno', this.schermoPieno);
+    const bottone = document.querySelector('#notebook-fullscreen');
+    bottone.setAttribute('aria-pressed', String(this.schermoPieno));
+    bottone.classList.toggle('active', this.schermoPieno);
+    const astuccio = document.querySelector('#notebook-tools');
+    const interruttore = document.querySelector('#toggle-notebook-tools');
+    if (this.schermoPieno) {
+      this.astuccioAperto = !astuccio.hidden;
+      astuccio.hidden = true;
+      interruttore.classList.remove('active');
+    } else if (this.astuccioAperto) {
+      astuccio.hidden = false;
+      interruttore.classList.add('active');
+    }
   }
 
   applicaZoom(zoom, panX, panY) {

@@ -34,7 +34,12 @@ test('il service worker include ogni risorsa statica essenziale', async () => {
 
 test('nessun file di consegna contiene segnaposto di sviluppo', async () => {
   const entries = await readdir(root, { recursive: true, withFileTypes: true });
-  const files = entries.filter((entry) => entry.isFile() && !entry.parentPath.includes('/tests')).map((entry) => join(entry.parentPath, entry.name));
+  // Solo i file che vengono davvero consegnati: fuori i test e tutte le cartelle
+  // di servizio che iniziano con un punto (.git in testa), che non si pubblicano.
+  const diServizio = (percorso) => percorso.includes('/tests') || /(^|\/)\.[^/]+\//.test(percorso);
+  const files = entries
+    .filter((entry) => entry.isFile() && !diServizio(`${entry.parentPath}/`))
+    .map((entry) => join(entry.parentPath, entry.name));
   for (const file of files) {
     if (/\.(png|mjs)$/.test(file) && file.includes('/vendor/')) continue;
     const source = await readFile(file, 'utf8').catch(() => '');
@@ -55,4 +60,26 @@ test('manifest, icone e PDF.js locale sono completi', async () => {
   assert.ok((await stat(new URL('../vendor/pdf.mjs', import.meta.url))).size > 500_000);
   assert.ok((await stat(new URL('../vendor/pdf.worker.mjs', import.meta.url))).size > 1_000_000);
   assert.match(await readFile(new URL('../vendor/PDFJS-LICENSE.txt', import.meta.url), 'utf8'), /Apache License\s+Version 2\.0/);
+});
+
+test('la vista a schermo intero ha i suoi comandi in entrambi gli spazi di lavoro', async () => {
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  for (const id of ['reader-fullscreen', 'reader-exit-fullscreen', 'notebook-fullscreen', 'notebook-exit-fullscreen']) {
+    assert.match(html, new RegExp(`id="${id}"`), `manca il pulsante ${id}`);
+  }
+  const css = await readFile(new URL('../style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.workspace\.schermo-pieno[^{]*\.workspace-header/);
+  assert.match(css, /\.workspace\.schermo-pieno[^{]*\.page-controls/);
+  assert.match(css, /\.workspace\.schermo-pieno \.fullscreen-exit/);
+});
+
+test('la superficie di lettura non lascia al browser lo zoom a due dita', async () => {
+  // Se il canvas concede pinch-zoom, Safari ingrandisce tutta l'app invece
+  // della sola pagina: barre e indicatori compresi.
+  const css = (await readFile(new URL('../style.css', import.meta.url), 'utf8')).replace(/\/\*[\s\S]*?\*\//g, '');
+  for (const regola of css.split('}')) {
+    if (!/touch-action/.test(regola)) continue;
+    if (!/\.drawing-canvas|\.page-scroll/.test(regola)) continue;
+    assert.doesNotMatch(regola, /pinch-zoom/, `questa regola lascia il pinch al browser: ${regola.trim()}`);
+  }
 });

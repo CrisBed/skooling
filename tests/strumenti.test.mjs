@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizePoint, hitTestElement, HistoryStack, makePdfFromJpegs, drawElement, DrawingSurface, creaGestoCondiviso } from '../strumenti.js';
+import { normalizePoint, hitTestElement, HistoryStack, makePdfFromJpegs, drawElement, DrawingSurface, creaGestoCondiviso, creaRilevatoreSwipe } from '../strumenti.js';
 
 function makeCanvas() {
   const context = {
@@ -273,4 +273,112 @@ test('la gomma interrotta dal secondo dito non lascia cancellature a metà', () 
   surface.pointerDown(tocco(2, 200, 800));
   assert.equal(surface.elements.length, 1, 'il tratto torna intero');
   assert.equal(surface.elements[0].id, 'segno-1');
+});
+
+// ---- Sfioramento orizzontale per cambiare pagina ---------------------------
+
+function dita(...punti) {
+  return new Map(punti.map((punto, indice) => [indice + 1, punto]));
+}
+
+// Riproduce un gesto: le dita partono da `da`, si spostano di `dx`/`dy` in
+// `durata` millisecondi e si staccano. Risponde come il rilevatore.
+function gesto(rilevatore, { da, dx, dy = 0, durata = 200, apertura = 0, orologio }) {
+  const arrivo = da.map((punto, indice) => ({
+    x: punto.x + (Array.isArray(dx) ? dx[indice] : dx) + (indice === 1 ? apertura : 0),
+    y: punto.y + dy,
+  }));
+  rilevatore.inizio(dita(...da));
+  orologio.valore += durata;
+  rilevatore.muovi(dita(...arrivo));
+  return rilevatore.fine(dita(...arrivo));
+}
+
+function conOrologio() {
+  const orologio = { valore: 0 };
+  return { orologio, rilevatore: creaRilevatoreSwipe({ adesso: () => orologio.valore }) };
+}
+
+test('uno sfioramento netto verso sinistra manda alla pagina successiva', () => {
+  const { rilevatore, orologio } = conOrologio();
+  assert.equal(gesto(rilevatore, { da: [{ x: 500, y: 400 }], dx: -160, orologio }), 1);
+});
+
+test('uno sfioramento netto verso destra torna alla pagina precedente', () => {
+  const { rilevatore, orologio } = conOrologio();
+  assert.equal(gesto(rilevatore, { da: [{ x: 300, y: 400 }], dx: 160, orologio }), -1);
+});
+
+test('un segno corto di penna non fa cambiare pagina', () => {
+  const { rilevatore, orologio } = conOrologio();
+  assert.equal(gesto(rilevatore, { da: [{ x: 500, y: 400 }], dx: -30, orologio }), 0);
+});
+
+test('un movimento in su o in diagonale non fa cambiare pagina', () => {
+  const { rilevatore, orologio } = conOrologio();
+  assert.equal(gesto(rilevatore, { da: [{ x: 500, y: 600 }], dx: 0, dy: -200, orologio }), 0);
+  assert.equal(gesto(rilevatore, { da: [{ x: 500, y: 600 }], dx: -150, dy: -140, orologio }), 0);
+});
+
+test('uno spostamento lento non è uno sfioramento', () => {
+  const { rilevatore, orologio } = conOrologio();
+  assert.equal(gesto(rilevatore, { da: [{ x: 500, y: 400 }], dx: -200, durata: 1400, orologio }), 0);
+});
+
+test('due dita che vanno insieme di lato cambiano pagina', () => {
+  const { rilevatore, orologio } = conOrologio();
+  assert.equal(gesto(rilevatore, { da: [{ x: 500, y: 400 }, { x: 620, y: 430 }], dx: -170, orologio }), 1);
+});
+
+test('due dita che si aprono ingrandiscono e non cambiano pagina', () => {
+  const { rilevatore, orologio } = conOrologio();
+  assert.equal(gesto(rilevatore, { da: [{ x: 500, y: 400 }, { x: 620, y: 400 }], dx: -150, apertura: 200, orologio }), 0);
+});
+
+test('due dita che vanno in versi opposti non cambiano pagina', () => {
+  const { rilevatore, orologio } = conOrologio();
+  assert.equal(gesto(rilevatore, { da: [{ x: 400, y: 400 }, { x: 700, y: 400 }], dx: [-150, 150], orologio }), 0);
+});
+
+test('un dito che si stacca senza che il gesto sia cominciato non cambia pagina', () => {
+  const { rilevatore } = conOrologio();
+  assert.equal(rilevatore.fine(dita({ x: 500, y: 400 })), 0);
+});
+
+test('annullare il gesto in corso spegne lo sfioramento', () => {
+  const { rilevatore, orologio } = conOrologio();
+  rilevatore.inizio(dita({ x: 500, y: 400 }));
+  orologio.valore += 150;
+  rilevatore.muovi(dita({ x: 320, y: 400 }));
+  rilevatore.annulla();
+  assert.equal(rilevatore.fine(dita({ x: 320, y: 400 })), 0);
+});
+
+// Sul dispositivo vero il movimento di ogni dito arriva in un evento suo: fra
+// un evento e l'altro le due dita risultano più distanti o più vicine di
+// quanto siano davvero. Uno sfioramento a due dita deve passare comunque.
+test('due dita che si spostano una per volta cambiano pagina', () => {
+  const { rilevatore, orologio } = conOrologio();
+  let primo = { x: 700, y: 400 };
+  let secondo = { x: 790, y: 400 };
+  rilevatore.inizio(dita(primo, secondo));
+  for (let passo = 1; passo <= 6; passo += 1) {
+    const x = 700 - 320 * passo / 6;
+    primo = { x, y: 400 };
+    rilevatore.muovi(dita(primo, secondo)); // si muove solo il primo dito
+    secondo = { x: x + 90, y: 400 };
+    rilevatore.muovi(dita(primo, secondo)); // poi il secondo raggiunge
+    orologio.valore += 18;
+  }
+  assert.equal(rilevatore.fine(dita(primo, secondo)), 1);
+});
+
+test('due dita che si aprono e tornano vicine non cambiano pagina', () => {
+  const { rilevatore, orologio } = conOrologio();
+  rilevatore.inizio(dita({ x: 500, y: 400 }, { x: 600, y: 400 }));
+  orologio.valore += 80;
+  rilevatore.muovi(dita({ x: 380, y: 400 }, { x: 900, y: 400 })); // si spalancano
+  orologio.valore += 80;
+  rilevatore.muovi(dita({ x: 300, y: 400 }, { x: 400, y: 400 })); // e tornano vicine
+  assert.equal(rilevatore.fine(dita({ x: 300, y: 400 }, { x: 400, y: 400 })), 0);
 });

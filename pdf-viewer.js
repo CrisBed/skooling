@@ -1,7 +1,7 @@
 // Lettore PDF basato sulla copia locale di PDF.js.
 import * as pdfjsLib from './vendor/pdf.mjs';
 import { DB } from './db.js';
-import { DrawingSurface, SurfaceGroup, attachToolbox, creaGestoCondiviso } from './strumenti.js';
+import { DrawingSurface, SurfaceGroup, attachToolbox, creaGestoCondiviso, creaRilevatoreSwipe } from './strumenti.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = './vendor/pdf.worker.mjs';
 
@@ -48,8 +48,18 @@ class Reader {
     this.thumbnailObserver = null;
     this.pinch = null;
     this.lastTap = 0;
+    this.ultimoTocco = 0;
     this.annotationSaveToken = 0;
     this.annotationSaveToken2 = 0;
+    // Un disegno di pagina alla volta. PDF.js rifiuta due render sullo stesso
+    // canvas, quindi ogni richiesta aspetta che la precedente abbia finito di
+    // liberarlo; il numero dice quale richiesta è l'ultima arrivata.
+    this.renderCorsa = 0;
+    this.renderInCoda = Promise.resolve();
+    // Sfioramento orizzontale: cambia pagina senza toccare i pulsanti.
+    this.swipe = creaRilevatoreSwipe();
+    this.schermoPieno = false;
+    this.astuccioAperto = false;
     // Un solo gesto per le due pagine: le due dita possono cadere su fogli diversi.
     const gesto = creaGestoCondiviso();
     const gestoTocco = (phase, event, touches) => this.handleTouchGesture(phase, event, touches);
@@ -101,7 +111,15 @@ class Reader {
       event.currentTarget.classList.toggle('active', notte);
     });
     document.querySelector('#toggle-bookmark').addEventListener('click', () => this.toggleBookmark());
-    this.scroll.addEventListener('dblclick', () => this.setZoom(1));
+    document.querySelector('#reader-fullscreen').addEventListener('click', () => this.setSchermoPieno(!this.schermoPieno));
+    document.querySelector('#reader-exit-fullscreen').addEventListener('click', () => this.setSchermoPieno(false));
+    // Col mouse il doppio clic riporta la pagina alla misura naturale. Sul
+    // tocco ci pensa già il doppio tocco: qui il doppio clic arriverebbe
+    // subito dopo e chiederebbe lo stesso ingrandimento una seconda volta.
+    this.scroll.addEventListener('dblclick', () => {
+      if (Date.now() - this.ultimoTocco < 700) return;
+      this.setZoom(1);
+    });
     window.addEventListener('keydown', (event) => {
       if (this.root.hidden) return;
       if (event.key === 'ArrowLeft') this.goTo(this.pageNumber - this.passo());
@@ -149,6 +167,10 @@ class Reader {
     this.drawing2.setElements([]);
     this.pageWrap2.hidden = true;
     this.pagesBox.style.transform = '';
+    // Il libro successivo si apre con le barre in vista: chi riapre deve
+    // ritrovare il pulsante per chiudere, non una pagina senza comandi.
+    this.setSchermoPieno(false);
+    this.swipe.annulla();
     this.root.hidden = true;
     document.body.classList.remove('workspace-open');
     document.dispatchEvent(new CustomEvent('skooling:reader-closed'));
@@ -206,11 +228,23 @@ class Reader {
     surface.setElements(annotations.filter((item) => item.idLibro === this.book.id && item.pagina === numero));
   }
 
+  // Disegna la pagina corrente. Le chiamate si mettono in fila una dietro
+  // l'altra: cambiare pagina, ingrandire e ruotare l'iPad possono arrivare a
+  // pochi millisecondi di distanza, e due render sovrapposti sullo stesso
+  // canvas facevano scattare un avviso di errore anche quando la pagina si
+  // vedeva benissimo. Se nel frattempo è arrivata una richiesta più nuova,
+  // questa si ferma in silenzio: a disegnare ci pensa l'ultima.
   async renderPage() {
     if (!this.pdf) return;
+    const corsa = ++this.renderCorsa;
     this.loading.hidden = false;
     this.renderTask?.cancel?.();
     this.renderTask2?.cancel?.();
+    const precedente = this.renderInCoda;
+    let liberaLaCoda;
+    this.renderInCoda = new Promise((resolve) => { liberaLaCoda = resolve; });
+    await precedente;
+    if (corsa !== this.renderCorsa || !this.pdf) { liberaLaCoda(); return; }
     try {
       const destra = this.doppia && this.pageNumber + 1 <= this.pdf.numPages ? this.pageNumber + 1 : null;
       this.pageWrap2.hidden = !destra;
@@ -235,36 +269,95 @@ class Reader {
       }
       this.scroll.scrollTo({ top: 0, left: 0 });
     } catch (error) {
-      if (error?.name !== 'RenderingCancelledException') {
+      // Si avvisa solo per un guasto vero dell'ultima richiesta: un render
+      // annullato o sorpassato da uno più nuovo non è un errore da mostrare.
+      const sorpassato = corsa !== this.renderCorsa || error?.name === 'RenderingCancelledException';
+      if (!sorpassato) {
         document.dispatchEvent(new CustomEvent('skooling:message', { detail: { text: 'La pagina non si è caricata. Riprova.', error: true } }));
       }
     } finally {
-      this.loading.hidden = true;
+      if (corsa === this.renderCorsa) this.loading.hidden = true;
+      liberaLaCoda();
     }
   }
 
   async setZoom(value) {
-    this.zoom = Math.max(0.75, Math.min(3.5, value));
+    const prossimo = Math.max(0.75, Math.min(3.5, value));
+    // Ingrandimento identico a quello di adesso: non c'è nulla da ridisegnare.
+    if (Math.abs(prossimo - this.zoom) < 0.005) {
+      this.pagesBox.style.transform = '';
+      return;
+    }
+    this.zoom = prossimo;
     await this.renderPage();
   }
 
   handleTouchGesture(phase, event, touches) {
-    if (phase === 'start' && touches.size === 2) {
-      const [a, b] = [...touches.values()];
-      this.pinch = { distance: Math.hypot(a.x - b.x, a.y - b.y) || 1, zoom: this.zoom, preview: this.zoom };
-    } else if (phase === 'move' && this.pinch && touches.size >= 2) {
-      const [a, b] = [...touches.values()];
-      const distance = Math.hypot(a.x - b.x, a.y - b.y) || 1;
-      this.pinch.preview = Math.max(0.75, Math.min(3.5, this.pinch.zoom * distance / this.pinch.distance));
-      this.pagesBox.style.transform = `scale(${this.pinch.preview / this.zoom})`;
-    } else if (phase === 'end' && this.pinch) {
+    if (phase === 'start') {
+      this.swipe.inizio(touches);
+      if (touches.size === 2) {
+        const [a, b] = [...touches.values()];
+        this.pinch = { distance: Math.hypot(a.x - b.x, a.y - b.y) || 1, zoom: this.zoom, preview: this.zoom };
+      }
+      return;
+    }
+    if (phase === 'move') {
+      this.swipe.muovi(touches);
+      if (this.pinch && touches.size >= 2) {
+        const [a, b] = [...touches.values()];
+        const distance = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+        this.pinch.preview = Math.max(0.75, Math.min(3.5, this.pinch.zoom * distance / this.pinch.distance));
+        this.pagesBox.style.transform = `scale(${this.pinch.preview / this.zoom})`;
+      }
+      return;
+    }
+    if (phase !== 'end') return;
+    if (event.pointerType === 'touch') this.ultimoTocco = Date.now();
+    // A pagina ingrandita le dita servono a spostare e a ridurre: si cambia
+    // pagina soltanto quando il foglio è alla sua misura naturale.
+    const direzione = this.zoom <= 1.01 ? this.swipe.fine(touches) : (this.swipe.annulla(), 0);
+    if (direzione) {
+      this.pinch = null;
+      this.pagesBox.style.transform = '';
+      this.lastTap = 0;
+      this.goTo(this.pageNumber + direzione * this.passo());
+      return;
+    }
+    if (this.pinch) {
       const preview = this.pinch.preview;
       this.pinch = null;
       this.setZoom(preview);
-    } else if (phase === 'end' && event.pointerType === 'touch') {
+      return;
+    }
+    if (event.pointerType === 'touch') {
       const now = Date.now();
-      if (now - this.lastTap < 320) this.setZoom(1);
-      this.lastTap = now;
+      if (now - this.lastTap < 320) {
+        this.lastTap = 0; // il doppio tocco è servito: un terzo tocco riparte da zero
+        this.setZoom(1);
+      } else {
+        this.lastTap = now;
+      }
+    }
+  }
+
+  // Vista a schermo intero: restano soltanto le pagine, senza barra in alto,
+  // controlli in basso e astuccio. Si esce col pulsante che resta in un angolo
+  // oppure toccando di nuovo il pulsante nella barra.
+  setSchermoPieno(attivo) {
+    this.schermoPieno = Boolean(attivo);
+    this.root.classList.toggle('schermo-pieno', this.schermoPieno);
+    const bottone = document.querySelector('#reader-fullscreen');
+    bottone.setAttribute('aria-pressed', String(this.schermoPieno));
+    bottone.classList.toggle('active', this.schermoPieno);
+    const astuccio = document.querySelector('#reader-tools');
+    const interruttore = document.querySelector('#toggle-reader-tools');
+    if (this.schermoPieno) {
+      this.astuccioAperto = !astuccio.hidden;
+      astuccio.hidden = true;
+      interruttore.classList.remove('active');
+    } else if (this.astuccioAperto) {
+      astuccio.hidden = false;
+      interruttore.classList.add('active');
     }
   }
 

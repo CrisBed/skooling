@@ -251,6 +251,92 @@ export function creaGestoCondiviso() {
   return { touches: new Map(), attivo: false, fogli: [] };
 }
 
+// Sfioramento orizzontale per cambiare pagina. Guarda le dita appoggiate sul
+// foglio e risponde soltanto a un movimento netto di lato, così chi scrive o
+// chi ingrandisce non cambia pagina per sbaglio: un segno di penna resta corto
+// o va in tutte le direzioni, e un ingrandimento apre o chiude le dita.
+export function creaRilevatoreSwipe(opzioni = {}) {
+  const distanzaMinima = opzioni.distanzaMinima ?? 70;        // px percorsi di lato
+  const quantoOrizzontale = opzioni.quantoOrizzontale ?? 1.8; // quanto più di lato che in alto
+  const durataMassima = opzioni.durataMassima ?? 900;         // ms: è uno sfioramento, non un trascinamento
+  const aperturaAmmessa = opzioni.aperturaAmmessa ?? 45;      // px di apertura fra due dita
+  const adesso = opzioni.adesso ?? (() => Date.now());
+  let traccia = null;
+
+  const misura = (touches) => {
+    const dita = [...touches.values()];
+    return {
+      numero: dita.length,
+      posizioni: dita.map((dito) => ({ x: dito.x, y: dito.y })),
+      apertura: dita.length >= 2 ? Math.hypot(dita[0].x - dita[1].x, dita[0].y - dita[1].y) : 0,
+    };
+  };
+
+  const media = (posizioni, asse) => posizioni.reduce((somma, punto) => somma + punto[asse], 0) / posizioni.length;
+
+  return {
+    // Ogni dito che si appoggia ricomincia la misura: il gesto vero parte da
+    // quando tutte le dita sono a terra.
+    inizio(touches) {
+      const stato = misura(touches);
+      if (!stato.numero) { traccia = null; return; }
+      traccia = {
+        numero: stato.numero,
+        partenza: stato.posizioni.map((punto) => ({ ...punto })),
+        posizioni: stato.posizioni,
+        apertura: stato.apertura,
+        tempo: adesso(),
+        scartoMassimo: 0,
+      };
+    },
+
+    muovi(touches) {
+      if (!traccia) return;
+      const stato = misura(touches);
+      if (stato.numero !== traccia.numero) { traccia = null; return; }
+      // Quanto si sono allontanate o avvicinate le dita rispetto alla partenza.
+      // Il movimento di ogni dito arriva in un momento suo, quindi durante uno
+      // sfioramento la distanza fra le due oscilla: qui si tiene solo lo scarto
+      // più grande, e il giudizio si dà alla fine.
+      if (traccia.numero >= 2) {
+        traccia.scartoMassimo = Math.max(traccia.scartoMassimo, Math.abs(stato.apertura - traccia.apertura));
+      }
+      traccia.posizioni = stato.posizioni;
+    },
+
+    // Risponde -1 per la pagina precedente, +1 per la successiva, 0 se non era
+    // uno sfioramento. Va chiamato quando il primo dito si stacca.
+    fine(touches) {
+      const corsa = traccia;
+      traccia = null;
+      if (!corsa) return 0;
+      if (adesso() - corsa.tempo > durataMassima) return 0;
+      const stato = misura(touches);
+      if (stato.numero !== corsa.numero) return 0;
+      if (corsa.numero >= 2) {
+        // Alla fine le dita sono distanti come all'inizio: sono andate insieme.
+        // Se invece si sono aperte o chiuse, anche solo a metà strada, era un
+        // ingrandimento e la pagina non deve cambiare.
+        if (Math.abs(stato.apertura - corsa.apertura) > aperturaAmmessa) return 0;
+        if (corsa.scartoMassimo > aperturaAmmessa * 3) return 0;
+      }
+      const dx = media(corsa.posizioni, 'x') - media(corsa.partenza, 'x');
+      const dy = media(corsa.posizioni, 'y') - media(corsa.partenza, 'y');
+      if (Math.abs(dx) < distanzaMinima) return 0;
+      if (Math.abs(dx) < Math.abs(dy) * quantoOrizzontale) return 0;
+      // Tutte le dita devono andare dalla stessa parte: due dita che vanno in
+      // versi opposti stanno ingrandendo o ruotando.
+      for (let indice = 0; indice < corsa.numero; indice += 1) {
+        const passo = corsa.posizioni[indice].x - corsa.partenza[indice].x;
+        if (Math.sign(passo) !== Math.sign(dx) || Math.abs(passo) < distanzaMinima / 2) return 0;
+      }
+      return dx < 0 ? 1 : -1; // dito verso sinistra: pagina successiva
+    },
+
+    annulla() { traccia = null; },
+  };
+}
+
 // La casella di testo può essere già stata tolta dal foglio: toglierla di nuovo
 // non deve fermare l'app.
 function togliDalFoglio(elemento) {

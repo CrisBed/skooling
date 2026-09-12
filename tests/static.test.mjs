@@ -16,7 +16,7 @@ test('la shell contiene navigazione, import PDF e viste principali', async () =>
 });
 
 test('i moduli applicativi usano soltanto import locali', async () => {
-  const names = ['app.js', 'db.js', 'pdf-viewer.js', 'quaderni.js', 'strumenti.js', 'album.js', 'ricerca.js'];
+  const names = ['app.js', 'db.js', 'pdf-viewer.js', 'quaderni.js', 'strumenti.js', 'album.js', 'ricerca.js', 'musica.js'];
   for (const name of names) {
     const source = await readFile(new URL(`../${name}`, import.meta.url), 'utf8');
     assert.doesNotMatch(source, /https?:\/\/|(?:src|href)\s*=\s*['"]\/\//i, `${name} contiene un URL remoto`);
@@ -28,7 +28,7 @@ test('i moduli applicativi usano soltanto import locali', async () => {
 
 test('il service worker include ogni risorsa statica essenziale', async () => {
   const sw = await readFile(new URL('../sw.js', import.meta.url), 'utf8');
-  const required = ['index.html', 'style.css', 'app.js', 'db.js', 'pdf-viewer.js', 'quaderni.js', 'strumenti.js', 'album.js', 'ricerca.js', 'manifest.webmanifest', 'vendor/pdf.mjs', 'vendor/pdf.worker.mjs'];
+  const required = ['index.html', 'style.css', 'app.js', 'db.js', 'pdf-viewer.js', 'quaderni.js', 'strumenti.js', 'album.js', 'ricerca.js', 'musica.js', 'manifest.webmanifest', 'vendor/pdf.mjs', 'vendor/pdf.worker.mjs'];
   for (const file of required) assert.match(sw, new RegExp(file.replaceAll('.', '\\.')));
 });
 
@@ -121,4 +121,26 @@ test('la barra in basso si adatta al numero di sezioni', async () => {
   const barra = css.split('}').find((regola) => /\.main-nav \{/.test(regola) && /inset: auto 0 0 0/.test(regola));
   assert.ok(barra, 'manca la regola della barra in basso');
   assert.doesNotMatch(barra, /grid-template-columns:\s*repeat\(\d+/, 'la barra in basso ha un numero fisso di colonne');
+});
+
+test('il lettore libera davvero il documento quando si chiude', async () => {
+  // In PDF.js il documento NON ha un metodo destroy: liberare la memoria si può
+  // solo dal compito di caricamento. Chiamarlo sul documento non dà errore, non
+  // fa niente in silenzio, e ogni libro aperto lascia dietro un worker e una
+  // copia intera del PDF finché l'app non viene riavviata.
+  const lettore = await readFile(new URL('../pdf-viewer.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(lettore, /this\.pdf\??\.destroy/, 'il documento non si chiude da solo: serve il compito di caricamento');
+  assert.match(lettore, /this\.caricamento\s*=\s*task/, 'il compito di caricamento va tenuto');
+  assert.match(lettore, /task\.destroy\(\)/, 'e va chiuso');
+  const vendor = await readFile(new URL('../vendor/pdf.mjs', import.meta.url), 'utf8');
+  const documento = vendor.slice(vendor.indexOf('class PDFDocumentProxy'), vendor.indexOf('class PDFDocumentProxy') + 2600);
+  assert.doesNotMatch(documento, /\n  (async )?destroy\(/, 'se una versione nuova di PDF.js aggiunge destroy al documento, questa regola va rivista');
+});
+
+test('i simboli musicali non dipendono dai caratteri di sistema', async () => {
+  // Provati sul dispositivo: i caratteri musicali di Unicode disegnano tutti lo
+  // stesso rettangolo vuoto. I segni vanno disegnati con la punta.
+  const musica = await readFile(new URL('../musica.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(musica, /fillText|measureText/, 'i segni non si scrivono come testo');
+  assert.match(musica, /bezierCurveTo|ellipse/, 'si disegnano con tracciati');
 });

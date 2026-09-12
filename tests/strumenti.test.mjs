@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizePoint, hitTestElement, HistoryStack, makePdfFromJpegs, drawElement, DrawingSurface, creaGestoCondiviso, creaRilevatoreSwipe, spostaElemento, riquadroElemento, ditaAppoggiate } from '../strumenti.js';
+import { normalizePoint, hitTestElement, HistoryStack, makePdfFromJpegs, drawElement, DrawingSurface, creaGestoCondiviso, creaRilevatoreSwipe, spostaElemento, riquadroElemento, ditaAppoggiate, disegnaElementi, INGROSSO_EVIDENZIATORE, TINTA_EVIDENZIATORE } from '../strumenti.js';
 
 function makeCanvas() {
   const context = {
     clearRect() {}, save() {}, restore() {}, setLineDash() {}, strokeRect() {}, fillRect() {},
     beginPath() {}, moveTo() {}, lineTo() {}, stroke() {},
+    ellipse() {}, arc() {}, bezierCurveTo() {}, rect() {}, translate() {}, rotate() {}, drawImage() {},
     measureText(value) { return { width: value.length * 8 }; }, fillText() {},
   };
   return {
@@ -435,4 +436,73 @@ test('fra i puntatori del gesto contano come dita solo quelle vere', () => {
   assert.equal(ditaAppoggiate(puntatori).length, 2);
   // senza il tipo si considera un dito, come nelle versioni precedenti
   assert.equal(ditaAppoggiate(new Map([[1, { x: 0, y: 0 }]])).length, 1);
+});
+
+// ---- Evidenziatore, gomma e sottolineatura --------------------------------
+
+test('l’evidenziatore è molto più largo della penna, così copre una riga in una passata', () => {
+  const larghezze = [];
+  const context = {
+    ...makeCanvas().getContext(), save() {}, restore() {}, beginPath() {}, moveTo() {}, lineTo() {},
+    stroke() {}, ellipse() {}, arc() {}, translate() {}, rotate() {}, fill() {},
+    set lineWidth(valore) { larghezze.push(valore); }, get lineWidth() { return 0; },
+    set globalAlpha(v) {}, set strokeStyle(v) {}, set fillStyle(v) {}, set lineCap(v) {}, set lineJoin(v) {},
+  };
+  const tratto = { tipo: 'evidenziatore', spessore: 5, punti: [{ x: 0.1, y: 0.5 }, { x: 0.9, y: 0.5 }] };
+  drawElement(context, tratto, 1000, 1000);
+  assert.equal(larghezze.at(-1), 5 * INGROSSO_EVIDENZIATORE);
+  assert.ok(INGROSSO_EVIDENZIATORE >= 6, 'deve essere ben più spesso della penna');
+});
+
+test('gli evidenziatori si posano tutti insieme in trasparenza, una volta sola', () => {
+  // È questo che impedisce al colore di scurirsi quando si ripassa.
+  const registro = [];
+  const foglioDiLavoro = { getContext: () => ({
+    save() {}, restore() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {},
+    clearRect() {}, ellipse() {}, arc() {}, translate() {}, rotate() {}, fill() {}, fillRect() {},
+    set lineWidth(v) {}, set globalAlpha(v) {}, set strokeStyle(v) {}, set fillStyle(v) {},
+    set lineCap(v) {}, set lineJoin(v) {},
+  }) };
+  const principale = {
+    save() { registro.push('salva'); }, restore() { registro.push('ripristina'); },
+    clearRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() { registro.push('tratto'); },
+    ellipse() {}, arc() {}, translate() {}, rotate() {}, fill() {}, fillRect() {},
+    drawImage() { registro.push('posa'); },
+    set globalAlpha(valore) { if (valore !== 1) registro.push('trasparenza:' + valore); },
+    set lineWidth(v) {}, set strokeStyle(v) {}, set fillStyle(v) {}, set lineCap(v) {}, set lineJoin(v) {},
+  };
+  const elementi = [
+    { id: 'a', tipo: 'evidenziatore', spessore: 5, punti: [{ x: 0.1, y: 0.5 }, { x: 0.9, y: 0.5 }] },
+    { id: 'b', tipo: 'evidenziatore', spessore: 5, punti: [{ x: 0.2, y: 0.5 }, { x: 0.8, y: 0.5 }] },
+  ];
+  disegnaElementi(principale, elementi, 1000, 1000, { creaFoglio: () => foglioDiLavoro });
+  assert.equal(registro.filter((v) => v === 'posa').length, 1, 'una sola posa per tutti gli evidenziatori');
+  assert.ok(registro.includes('trasparenza:' + TINTA_EVIDENZIATORE), 'la trasparenza si dà alla posa, non al tratto');
+  assert.equal(registro.filter((v) => v === 'tratto').length, 0, 'sul foglio principale non si traccia nessun evidenziatore');
+});
+
+test('la sottolineatura resta orizzontale anche se la mano scende', () => {
+  const surface = new DrawingSurface(makeCanvas(), {});
+  surface.setDrawWithFinger(true);
+  surface.setTool('sottolineatura');
+  surface.pointerDown({ pointerId: 1, pointerType: 'touch', clientX: 100, clientY: 500, preventDefault() {} });
+  surface.pointerMove({ pointerId: 1, pointerType: 'touch', clientX: 600, clientY: 620, preventDefault() {} });
+  surface.pointerUp({ pointerId: 1, pointerType: 'touch', clientX: 600, clientY: 620, preventDefault() {} });
+  const riga = surface.elements.at(-1);
+  assert.equal(riga.tipo, 'sottolineatura');
+  assert.equal(riga.y1, riga.y2, 'la riga sotto le parole non si inclina');
+  assert.ok(riga.x2 > riga.x1, 'ma segue la mano in orizzontale');
+});
+
+test('la gomma toglie il tratto toccato e lascia stare quelli vicini', () => {
+  const surface = new DrawingSurface(makeCanvas(), {});
+  surface.setElements([
+    { id: 'sopra', tipo: 'penna', spessore: 5, punti: [{ x: 0.2, y: 0.40 }, { x: 0.8, y: 0.40 }] },
+    { id: 'mezzo', tipo: 'penna', spessore: 5, punti: [{ x: 0.2, y: 0.42 }, { x: 0.8, y: 0.42 }] },
+    { id: 'sotto', tipo: 'penna', spessore: 5, punti: [{ x: 0.2, y: 0.44 }, { x: 0.8, y: 0.44 }] },
+  ]);
+  surface.setWidth(5);
+  assert.equal(surface.eraseAt({ x: 0.5, y: 0.42 }), true, 'il tratto toccato viene inciso');
+  const quote = new Set(surface.elements.map((e) => Math.round(e.punti[0].y * 100)));
+  assert.ok(quote.has(40) && quote.has(44), 'i tratti vicini restano al loro posto');
 });

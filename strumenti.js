@@ -1,8 +1,15 @@
 // Motore vettoriale condiviso da libri e quaderni.
 import { createId } from './db.js';
+import { disegnaSegnoMusicale, ingombroSegno, segnoValido } from './musica.js';
 
 export const COLORS = ['#1f2937', '#2457d6', '#db3a34', '#15956d', '#f0b429', '#8b5cf6', '#f472b6'];
 export const WIDTHS = [2, 5, 10];
+// L'evidenziatore e' molto piu' largo della penna: deve coprire una riga di
+// testo in una passata sola, senza doverci tornare sopra due o tre volte.
+export const INGROSSO_EVIDENZIATORE = 9;
+// La trasparenza si da' una volta sola a tutta la posa, non a ogni tratto:
+// vedi disegnaElementi qui sotto.
+export const TINTA_EVIDENZIATORE = 0.3;
 export const TEXT_SIZES = [16, 20, 24, 32, 40, 42, 56, 72];
 export const TEXT_FONTS = {
   sans: '-apple-system, BlinkMacSystemFont, sans-serif',
@@ -30,6 +37,11 @@ function distanceToSegment(point, start, end) {
 }
 
 export function hitTestElement(element, point, tolerance = 0.025) {
+  if (element.tipo === 'simbolo') {
+    const bordi = riquadroElemento(element);
+    return point.x >= bordi.sinistra - tolerance && point.x <= bordi.destra + tolerance
+      && point.y >= bordi.alto - tolerance && point.y <= bordi.basso + tolerance;
+  }
   if (element.tipo === 'testo') {
     return point.x >= element.x - tolerance && point.x <= element.x + element.w + tolerance
       && point.y >= element.y - tolerance && point.y <= element.y + element.h + tolerance;
@@ -172,20 +184,36 @@ export function drawElement(context, element, width, height, selected = false) {
   context.strokeStyle = element.colore || COLORS[0];
   context.fillStyle = element.colore || COLORS[0];
   context.lineWidth = element.spessore || WIDTHS[0];
-  context.globalAlpha = element.tipo === 'evidenziatore' ? 0.28 : 1;
 
-  if (['penna', 'evidenziatore'].includes(element.tipo)) {
+  if (element.tipo === 'evidenziatore') {
+    // Un solo tratto continuo, non un segmento per volta: cosi' le giunture non
+    // si sovrappongono e il colore resta uniforme dall'inizio alla fine.
+    const points = element.punti || [];
+    if (points.length) {
+      context.lineWidth = (element.spessore || 2) * INGROSSO_EVIDENZIATORE;
+      context.beginPath();
+      context.moveTo(points[0].x * width, points[0].y * height);
+      for (let index = 1; index < points.length; index += 1) {
+        context.lineTo(points[index].x * width, points[index].y * height);
+      }
+      context.stroke();
+    }
+  } else if (element.tipo === 'penna') {
     const points = element.punti || [];
     for (let index = 1; index < points.length; index += 1) {
       const previous = points[index - 1];
       const point = points[index];
-      const pressure = element.tipo === 'evidenziatore' ? 1 : (previous.pressure + point.pressure) / 2 || 0.5;
+      const pressure = (previous.pressure + point.pressure) / 2 || 0.5;
       context.lineWidth = (element.spessore || 2) * (0.65 + pressure * 0.7);
       context.beginPath();
       context.moveTo(previous.x * width, previous.y * height);
       context.lineTo(point.x * width, point.y * height);
       context.stroke();
     }
+  } else if (element.tipo === 'simbolo') {
+    // L'unita' del segno e' una frazione dell'altezza del foglio: cosi' un
+    // segno resta della stessa misura anche se il foglio si ingrandisce.
+    disegnaSegnoMusicale(context, element.segno, element.x * width, element.y * height, (element.unita || 0.02) * height, element.colore || COLORS[0]);
   } else if (element.tipo === 'testo') {
     const x = element.x * width;
     const y = element.y * height;
@@ -243,27 +271,80 @@ export function drawElement(context, element, width, height, selected = false) {
   }
   // Un segno o una figura scelti si vedono con un riquadro tratteggiato: il
   // testo ha gia' il suo, disegnato insieme alla casella.
-  if (selected && element.tipo !== 'testo') {
-    const bordi = riquadroElemento(element);
-    if (bordi) {
-      context.globalAlpha = 1;
-      context.strokeStyle = '#2457d6';
-      context.lineWidth = 2;
-      context.setLineDash([6, 4]);
-      const margine = 0.012;
-      context.strokeRect(
-        (bordi.sinistra - margine) * width, (bordi.alto - margine) * height,
-        (bordi.destra - bordi.sinistra + margine * 2) * width,
-        (bordi.basso - bordi.alto + margine * 2) * height,
-      );
-      context.setLineDash([]);
+  if (selected && element.tipo !== 'testo') disegnaRiquadroSelezione(context, element, width, height);
+  context.restore();
+}
+
+// Il riquadro tratteggiato che dice quale segno e' stato scelto.
+export function disegnaRiquadroSelezione(context, element, width, height) {
+  const bordi = riquadroElemento(element);
+  if (!bordi) return;
+  context.save();
+  context.globalAlpha = 1;
+  context.strokeStyle = '#2457d6';
+  context.lineWidth = 2;
+  context.setLineDash([6, 4]);
+  const margine = 0.012;
+  context.strokeRect(
+    (bordi.sinistra - margine) * width, (bordi.alto - margine) * height,
+    (bordi.destra - bordi.sinistra + margine * 2) * width,
+    (bordi.basso - bordi.alto + margine * 2) * height,
+  );
+  context.restore();
+}
+
+function creaFoglioDiLavoro(width, height) {
+  const foglio = document.createElement('canvas');
+  foglio.width = width;
+  foglio.height = height;
+  return foglio;
+}
+
+// Disegna tutti i segni di una pagina.
+//
+// Gli evidenziatori vanno prima su un foglio a parte, a tinta piena, e poi si
+// posano tutti insieme in trasparenza. E' questo che impedisce al colore di
+// scurirsi quando si ripassa: due passate sullo stesso punto restano della
+// stessa tinta della prima, come con un evidenziatore vero. Per lo stesso
+// motivo stanno sotto ai segni di penna, che cosi' restano leggibili.
+export function disegnaElementi(context, elements, width, height, opzioni = {}) {
+  const { selectedId = null, saltaId = null, creaFoglio = creaFoglioDiLavoro, pulisci = true } = opzioni;
+  // Sul foglio del quaderno lo sfondo e' gia' disegnato: li' non si pulisce.
+  if (pulisci) context.clearRect(0, 0, width, height);
+  const visibili = elements.filter((element) => element.id !== saltaId);
+  const evidenziatori = visibili.filter((element) => element.tipo === 'evidenziatore');
+
+  if (evidenziatori.length) {
+    const foglio = creaFoglio(width, height);
+    const pennello = foglio.getContext('2d');
+    for (const element of evidenziatori) drawElement(pennello, element, width, height, false);
+    context.save();
+    context.globalAlpha = TINTA_EVIDENZIATORE;
+    context.drawImage(foglio, 0, 0);
+    context.restore();
+    for (const element of evidenziatori) {
+      if (element.id === selectedId) disegnaRiquadroSelezione(context, element, width, height);
     }
   }
-  context.restore();
+
+  for (const element of visibili) {
+    if (element.tipo === 'evidenziatore') continue;
+    drawElement(context, element, width, height, element.id === selectedId);
+  }
 }
 
 // I quattro lati di un elemento, in coordinate del foglio (da 0 a 1).
 export function riquadroElemento(element) {
+  if (element.tipo === 'simbolo') {
+    const ingombro = ingombroSegno(element.segno);
+    const unita = element.unita || 0.02;
+    return {
+      sinistra: element.x - unita * (ingombro.sinistra + 0.3),
+      destra: element.x + unita * (ingombro.destra + 0.3),
+      alto: element.y - unita * (ingombro.sopra + 0.3),
+      basso: element.y + unita * (ingombro.sotto + 0.3),
+    };
+  }
   if (element.tipo === 'testo') {
     return { sinistra: element.x, destra: element.x + element.w, alto: element.y, basso: element.y + element.h };
   }
@@ -287,7 +368,7 @@ export function spostaElemento(element, originale, dx, dy) {
   if (!bordi) return element;
   const passoX = Math.max(-bordi.sinistra, Math.min(1 - bordi.destra, dx));
   const passoY = Math.max(-bordi.alto, Math.min(1 - bordi.basso, dy));
-  if (originale.tipo === 'testo') {
+  if (originale.tipo === 'testo' || originale.tipo === 'simbolo') {
     element.x = originale.x + passoX;
     element.y = originale.y + passoY;
   } else if (originale.punti) {
@@ -426,6 +507,10 @@ export class DrawingSurface {
     this.editingId = null;   // id della casella di testo aperta per scriverci
     this.textEditor = null;  // l'elemento HTML editabile in-place (apre la tastiera grande)
     this.pointers = new Map();
+    // Quale segno musicale si sta appoggiando, e come incollarlo alla riga del
+    // rigo: nei quaderni a pentagramma ci pensa il quaderno.
+    this.segnoMusicale = 'semiminima';
+    this.agganciaY = options.agganciaY || ((y) => y);
     this.gesto = options.gesto || creaGestoCondiviso();
     this.gesto.fogli.push(this);
     this.history = new HistoryStack(30);
@@ -480,11 +565,14 @@ export class DrawingSurface {
     if (this.tool === 'testo') this.textDraft = { ...this.textDraft, colore: color };
   }
   setWidth(width) { this.width = Number(width); }
+  setSegnoMusicale(segno) { if (segnoValido(segno)) this.segnoMusicale = segno; }
   setReadOnly(value) { this.readOnly = Boolean(value); }
   setDrawWithFinger(value) { this.drawWithFinger = Boolean(value); }
 
   eraseAt(point) {
-    const tolerance = Math.max(0.012, this.width / 250);
+    // La gomma toglie quel che tocca davvero, non un'area larga attorno: il
+    // raggio segue lo spessore scelto e resta vicino a quello della penna.
+    const tolerance = Math.max(0.004, this.width / 700);
     let changed = false;
     const next = [];
     for (const element of this.elements) {
@@ -504,7 +592,7 @@ export class DrawingSurface {
   }
 
   eraseBetween(start, end) {
-    const tolerance = Math.max(0.012, this.width / 250);
+    const tolerance = Math.max(0.004, this.width / 700);
     const distance = Math.hypot(end.x - start.x, end.y - start.y);
     const steps = Math.max(1, Math.ceil(distance / (tolerance / 2)));
     let changed = false;
@@ -593,6 +681,18 @@ export class DrawingSurface {
     // interrompere il tratto: si prosegue senza.
     try { this.canvas.setPointerCapture?.(event.pointerId); } catch { /* puntatore già chiuso */ }
     const point = this.pointFromEvent(event);
+    if (this.tool === 'simbolo') {
+      const element = {
+        id: createId('segno'), tipo: 'simbolo', segno: this.segnoMusicale,
+        x: point.x, y: this.agganciaY(point.y),
+        unita: 0.022, colore: this.color, timestamp: Date.now(),
+      };
+      this.elements.push(element);
+      this.selectedId = element.id;
+      this.render();
+      this.commit();
+      return;
+    }
     if (this.tool === 'sposta') {
       // Si prende l'elemento più in alto sotto il dito e lo si porta altrove.
       // Misura e contenuto non cambiano: cambia solo dove sta.
@@ -679,7 +779,10 @@ export class DrawingSurface {
       if (Math.hypot(point.x - last.x, point.y - last.y) > 0.0015) this.active.punti.push(point);
     } else {
       this.active.x2 = point.x;
-      this.active.y2 = point.y;
+      // Una sottolineatura sta sotto le parole, e le righe di un libro sono
+      // dritte: resta orizzontale comunque si muova la mano. Per una riga
+      // storta c'è lo strumento Riga.
+      this.active.y2 = this.active.tipo === 'sottolineatura' ? this.active.y1 : point.y;
     }
     this.render();
   }
@@ -807,11 +910,10 @@ export class DrawingSurface {
   }
 
   render(context = this.context, width = this.canvas.width, height = this.canvas.height) {
-    context.clearRect(0, 0, width, height);
-    for (const element of this.elements) {
-      if (element.id === this.editingId) continue; // in scrittura: lo mostra la casella HTML
-      drawElement(context, element, width, height, element.id === this.selectedId);
-    }
+    disegnaElementi(context, this.elements, width, height, {
+      selectedId: this.selectedId,
+      saltaId: this.editingId, // in scrittura: quella casella la mostra l'HTML
+    });
   }
 
   destroy() {
@@ -844,6 +946,7 @@ export class SurfaceGroup {
   setReadOnly(value) { this.surfaces.forEach((s) => s.setReadOnly(value)); }
   setDrawWithFinger(value) { this.surfaces.forEach((s) => s.setDrawWithFinger(value)); }
   setTextDraft(draft) { this.surfaces.forEach((s) => s.setTextDraft(draft)); }
+  setSegnoMusicale(segno) { this.surfaces.forEach((s) => s.setSegnoMusicale(segno)); }
 
   // Azioni sul foglio attivo
   undo() { return this.active.undo(); }

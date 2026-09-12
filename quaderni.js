@@ -1,6 +1,7 @@
 // Gestione dei quaderni e delle loro pagine vettoriali.
 import { DB, createId } from './db.js';
-import { DrawingSurface, SurfaceGroup, attachToolbox, drawElement, canvasToJpeg, makePdfFromJpegs, downloadBlob, creaGestoCondiviso, creaRilevatoreSwipe, ditaAppoggiate } from './strumenti.js';
+import { SEGNI_MUSICALI, disegnaSegnoMusicale } from './musica.js';
+import { DrawingSurface, SurfaceGroup, attachToolbox, disegnaElementi, canvasToJpeg, makePdfFromJpegs, downloadBlob, creaGestoCondiviso, creaRilevatoreSwipe, ditaAppoggiate } from './strumenti.js';
 
 function safeFilename(value) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'quaderno';
@@ -16,6 +17,24 @@ export const TIPI_FOGLIO = {
   pentagramma: 'staff',
   millimetrato: 'graph',
 };
+
+// Misure del pentagramma, identiche a quelle del CSS: se cambiano li', vanno
+// cambiate anche qui, altrimenti i simboli non cadono piu' sulle righe.
+export const RIGO = { passoRiga: 16, passoRigo: 150, primaRiga: 15 };
+
+// Porta una quota verticale sulla riga o sullo spazio piu' vicini. E' quel che
+// fa la mano quando si scrive musica: le note non stanno a mezz'aria.
+export function agganciaAlRigo(yNormalizzato, altezzaFoglio) {
+  if (!altezzaFoglio) return yNormalizzato;
+  const y = yNormalizzato * altezzaFoglio;
+  const dentroRigo = ((y - RIGO.primaRiga) % RIGO.passoRigo + RIGO.passoRigo) % RIGO.passoRigo;
+  const inizio = y - dentroRigo;
+  // mezzo passo: cosi' si aggancia sia alle righe sia agli spazi in mezzo
+  const mezzi = Math.round(dentroRigo / (RIGO.passoRiga / 2));
+  // oltre il rigo (sopra la prima riga o sotto la quinta) si resta liberi
+  if (mezzi < -2 || mezzi > 10) return yNormalizzato;
+  return (inizio + mezzi * (RIGO.passoRiga / 2)) / altezzaFoglio;
+}
 
 function riga(context, x1, y1, x2, y2) {
   context.beginPath(); context.moveTo(x1, y1); context.lineTo(x2, y2); context.stroke();
@@ -35,9 +54,9 @@ export function drawPaper(context, type, width, height) {
   if (type === 'pentagramma') {
     context.strokeStyle = '#5b6472';
     context.lineWidth = Math.max(1, 1.4 * scala);
-    const passoRiga = 16 * scala;   // distanza fra le cinque righe di un rigo
-    const passoRigo = 150 * scala;  // distanza fra un rigo e quello dopo
-    for (let alto = passoRigo * 0.35; alto + passoRiga * 4 < height; alto += passoRigo) {
+    const passoRiga = RIGO.passoRiga * scala;   // fra le cinque righe di un rigo
+    const passoRigo = RIGO.passoRigo * scala;  // fra un rigo e quello dopo
+    for (let alto = RIGO.primaRiga * scala; alto + passoRiga * 4 < height; alto += passoRigo) {
       for (let indice = 0; indice < 5; indice += 1) {
         riga(context, 0, alto + indice * passoRiga, width, alto + indice * passoRiga);
       }
@@ -95,12 +114,52 @@ export class NotebookManager {
     const gesto = creaGestoCondiviso();
     const gestoDueDita = (fase, event, touches) => this.gestoDueDita(fase, touches);
     // due fogli: sinistro (offset 0) e destro (offset 1). onChange salva la pagina giusta.
-    this.surface = new DrawingSurface(this.canvas, { gesto, onChange: (elements) => this.savePage(0, elements), onTouchGesture: gestoDueDita });
-    this.surface2 = new DrawingSurface(this.canvas2, { gesto, onChange: (elements) => this.savePage(1, elements), onTouchGesture: gestoDueDita });
+    // Sul pentagramma i simboli si incollano alla riga piu' vicina.
+    const aggancia = (canvas) => (y) => (this.current?.tipo === 'pentagramma'
+      ? agganciaAlRigo(y, canvas.offsetHeight)
+      : y);
+    this.surface = new DrawingSurface(this.canvas, { gesto, onChange: (elements) => this.savePage(0, elements), onTouchGesture: gestoDueDita, agganciaY: aggancia(this.canvas) });
+    this.surface2 = new DrawingSurface(this.canvas2, { gesto, onChange: (elements) => this.savePage(1, elements), onTouchGesture: gestoDueDita, agganciaY: aggancia(this.canvas2) });
     // un unico astuccio comanda entrambi i fogli (attivo = l'ultimo toccato)
     this.group = new SurfaceGroup([this.surface, this.surface2]);
     attachToolbox(document.querySelector('#notebook-tools'), this.group);
     this.bind();
+  }
+
+  // Costruisce la tavolozza dei simboli, ognuno disegnato davvero com'e': un
+  // elenco di nomi non direbbe niente a chi cerca la nota che gli serve.
+  costruisciTavolozzaMusicale() {
+    const griglia = document.querySelector('#notebook-music-grid');
+    if (griglia.childElementCount) return;
+    for (const segno of SEGNI_MUSICALI) {
+      const bottone = document.createElement('button');
+      bottone.type = 'button';
+      bottone.dataset.segno = segno.chiave;
+      bottone.title = segno.nome;
+      bottone.setAttribute('aria-label', segno.nome);
+      const anteprima = document.createElement('canvas');
+      anteprima.width = 68; anteprima.height = 92;
+      disegnaSegnoMusicale(anteprima.getContext('2d'), segno.chiave, 34, 50, 9, '#1f2937');
+      bottone.append(anteprima);
+      bottone.addEventListener('click', () => this.scegliSegno(segno.chiave));
+      griglia.append(bottone);
+    }
+  }
+
+  scegliSegno(chiave) {
+    this.group.setSegnoMusicale(chiave);
+    this.group.setTool('simbolo');
+    document.querySelectorAll('#notebook-music-grid button').forEach((b) => b.classList.toggle('active', b.dataset.segno === chiave));
+    // nell'astuccio nessuno strumento resta acceso: comanda la tavolozza
+    document.querySelectorAll('#notebook-tools [data-tool]').forEach((b) => b.classList.remove('active'));
+  }
+
+  // La tavolozza si vede solo dove serve: su un quaderno a pentagramma.
+  aggiornaTavolozzaMusicale() {
+    const pannello = document.querySelector('#notebook-music');
+    const musicale = this.current?.tipo === 'pentagramma';
+    pannello.hidden = !musicale;
+    if (musicale) this.costruisciTavolozzaMusicale();
   }
 
   bind() {
@@ -130,6 +189,11 @@ export class NotebookManager {
     document.querySelector('#notebook-delete-page').addEventListener('click', () => this.deletePage());
     document.querySelector('#export-notebook-page').addEventListener('click', () => this.exportPage());
     document.querySelector('#export-notebook-pdf').addEventListener('click', () => this.exportPdf());
+    document.querySelector('#notebook-tools').addEventListener('click', (event) => {
+      if (event.target.closest('[data-tool]')) {
+        document.querySelectorAll('#notebook-music-grid button').forEach((b) => b.classList.remove('active'));
+      }
+    });
     document.querySelector('#notebook-fullscreen').addEventListener('click', () => this.setSchermoPieno(!this.schermoPieno));
     document.querySelector('#notebook-exit-fullscreen').addEventListener('click', () => this.setSchermoPieno(false));
     document.querySelector('#toggle-notebook-tools').addEventListener('click', (event) => {
@@ -177,6 +241,7 @@ export class NotebookManager {
     document.querySelector('#editor-quaderno').hidden = false;
     document.body.classList.add('workspace-open');
     this.azzeraZoom();
+    this.aggiornaTavolozzaMusicale();
     this.showPage();
   }
 
@@ -388,7 +453,9 @@ export class NotebookManager {
     canvas.height = 1754;
     const context = canvas.getContext('2d');
     drawPaper(context, this.current.tipo, canvas.width, canvas.height);
-    for (const element of page.elementi || []) drawElement(context, element, canvas.width, canvas.height);
+    // Stessa posa che si vede a schermo, evidenziatori compresi: l'immagine
+    // esportata deve somigliare al foglio, non essere disegnata in altro modo.
+    disegnaElementi(context, page.elementi || [], canvas.width, canvas.height, { pulisci: false });
     return canvas;
   }
 

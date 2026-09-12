@@ -99,6 +99,29 @@ h2 { margin: 0; font-size: 21px; line-height: 1.15; }
 
 .empty-photo { width: 86px; height: 86px; display: grid; place-items: center; border-radius: 26px; background: var(--yellow); color: #7a5a00; font-size: 38px; }
 
+/* Segnalibri di un libro */
+.bookmark-panel { width: 268px; flex: 0 0 auto; padding: 16px; overflow-y: auto; background: #fff; border-right: 1px solid var(--line); }
+.bookmark-head { margin-bottom: 12px; }
+.bookmark-head strong { font: 700 19px/1 Georgia, serif; }
+.bookmark-item { width: 100%; margin-bottom: 8px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 13px; background: white; display: grid; gap: 3px; text-align: left; }
+.bookmark-item.corrente { border-color: var(--blue); background: var(--blue-soft); }
+.bookmark-item strong { color: var(--blue); font-size: 13px; }
+.bookmark-item span { color: var(--ink); font-size: 14px; line-height: 1.3; overflow-wrap: anywhere; }
+.bookmark-row { display: flex; gap: 7px; align-items: flex-start; margin-bottom: 8px; }
+.bookmark-row .bookmark-item { margin-bottom: 0; }
+.bookmark-remove { flex: none; width: 42px; height: 42px; border: 0; border-radius: 12px; background: var(--desk); font-size: 19px; }
+.bookmark-empty { color: var(--muted); font-size: 13px; line-height: 1.4; }
+@media (max-width: 900px) { .bookmark-panel { position: absolute; z-index: 11; left: 0; top: 0; bottom: 0; box-shadow: 10px 0 30px rgb(20 31 60 / 18%); } }
+
+/* Tavolozza dei simboli musicali, nell'astuccio del quaderno a pentagramma */
+.music-palette { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.music-palette > strong { display: block; font-size: 14px; }
+.music-hint { margin: 5px 0 11px; color: var(--muted); font-size: 12px; line-height: 1.35; }
+.music-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+.music-grid button { min-height: 56px; display: grid; place-items: center; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: white; }
+.music-grid button.active { border-color: var(--blue); background: var(--blue-soft); }
+.music-grid canvas { width: 34px; height: 46px; }
+
 /* Album delle attivita' */
 .album-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 20px; }
 .album-card { position: relative; min-width: 0; }
@@ -182,7 +205,7 @@ input[role="switch"]:checked::after { transform: translateX(22px); }
 .workspace-body { min-height: 0; flex: 1; display: flex; }
 .reader-area { position: relative; min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; }
 .page-scroll { min-height: 0; flex: 1; overflow: auto; padding: 28px; display: grid; place-items: start center; overscroll-behavior: contain; touch-action: pan-x pan-y; }
-.pdf-pages { display: flex; gap: 18px; align-items: flex-start; justify-content: center; transform-origin: top center; }
+.pdf-pages { display: flex; gap: 18px; align-items: flex-start; justify-content: center; }
 .page-wrap { position: relative; flex: none; background: white; box-shadow: 0 12px 36px rgb(11 28 68 / 22%); transform-origin: top center; }
 .page-wrap.night { filter: invert(.88) hue-rotate(180deg); background: #111827; }
 #pdf-canvas { display: block; width: 100%; height: 100%; }

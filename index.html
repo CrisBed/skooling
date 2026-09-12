@@ -136,6 +136,7 @@
         <button id="reader-two-pages" class="small-button" type="button" aria-pressed="false">2 pagine</button>
         <button id="toggle-thumbnails" class="icon-button" type="button" aria-label="Mostra miniature">▦</button>
         <button id="toggle-bookmark" class="icon-button" type="button" aria-label="Aggiungi segnalibro">☆</button>
+        <button id="toggle-bookmark-list" class="icon-button" type="button" aria-label="Elenco dei segnalibri">≡</button>
         <button id="toggle-night" class="icon-button" type="button" aria-label="Modalità notte">◐</button>
         <button id="reader-fullscreen" class="icon-button" type="button" aria-label="Schermo intero" aria-pressed="false">⤢</button>
         <button id="toggle-reader-tools" class="icon-button" type="button" aria-label="Mostra strumenti">✎</button>
@@ -144,6 +145,11 @@
     <button id="reader-exit-fullscreen" class="fullscreen-exit" type="button" aria-label="Esci da schermo intero">⤡</button>
     <div class="workspace-body">
       <aside id="thumbnail-panel" class="thumbnail-panel" aria-label="Miniature delle pagine" hidden><div id="thumbnail-list"></div></aside>
+      <aside id="bookmark-panel" class="bookmark-panel" aria-label="Segnalibri del libro" hidden>
+        <div class="bookmark-head"><strong>Segnalibri</strong></div>
+        <div id="bookmark-list"></div>
+        <p id="bookmark-empty" class="bookmark-empty">Nessun segnalibro in questo libro. Tocca la stella per metterne uno sulla pagina che stai leggendo.</p>
+      </aside>
       <div class="reader-area">
         <div id="reader-loading" class="loading-card" role="status" hidden><span class="spinner"></span><span>Preparo la pagina…</span></div>
         <div id="pdf-scroll" class="page-scroll">
@@ -196,6 +202,11 @@
         <div class="palette" data-palette aria-label="Colori"></div>
         <div class="widths" role="group" aria-label="Spessore"><button type="button" data-width="2"><span class="dot thin"></span></button><button type="button" data-width="5" class="active"><span class="dot medium"></span></button><button type="button" data-width="10"><span class="dot thick"></span></button></div>
         <div class="history-buttons"><button type="button" data-undo>↶ Annulla</button><button type="button" data-redo>↷ Ripeti</button></div>
+        <div id="notebook-music" class="music-palette" hidden>
+          <strong>Simboli musicali</strong>
+          <p class="music-hint">Scegli un segno, poi tocca il rigo dove metterlo. Con “Sposta” lo si sistema dopo.</p>
+          <div id="notebook-music-grid" class="music-grid"></div>
+        </div>
       </aside>
     </div>
   </section>
@@ -210,6 +221,15 @@
     <form method="dialog" id="task-form" class="dialog-form"><input id="edit-task-id" type="hidden"><div class="dialog-heading"><div><p class="eyebrow">Promemoria</p><h2 id="task-dialog-title">Nuovo compito</h2></div><button type="button" data-dialog-close class="icon-button" aria-label="Chiudi">×</button></div><label>Materia<input id="task-subject" required maxlength="60" list="subjects-list"></label><label>Descrizione<textarea id="task-description" required maxlength="500" rows="4"></textarea></label><label>Consegna<input id="task-due" type="date" required></label><label>Collegamento facoltativo<select id="task-link"><option value="">Nessun collegamento</option></select></label><label id="task-link-page-row" hidden>Pagina<input id="task-link-page" type="number" min="1" value="1"></label><div class="photo-field"><span class="field-label">Foto della lavagna</span><div class="button-row"><label class="button secondary file-button"><input id="task-photo" type="file" accept="image/*" capture="environment" hidden>Scatta o scegli</label><button type="button" id="task-photo-remove" class="button secondary danger-text" hidden>Togli la foto</button></div><img id="task-photo-preview" alt="Foto del compito" hidden></div><div class="dialog-actions"><button type="button" data-dialog-close class="button secondary">Annulla</button><button class="button primary" value="default">Salva compito</button></div></form>
   </dialog>
   <datalist id="subjects-list"><option value="Italiano"><option value="Matematica"><option value="Storia"><option value="Geografia"><option value="Scienze"><option value="Inglese"><option value="Arte"><option value="Tecnologia"></datalist>
+
+  <dialog id="bookmark-dialog">
+    <form method="dialog" id="bookmark-form" class="dialog-form">
+      <div class="dialog-heading"><div><p class="eyebrow">Segnalibro</p><h2 id="bookmark-dialog-title">Nuovo segnalibro</h2></div><button type="button" data-dialog-close class="icon-button" aria-label="Chiudi">×</button></div>
+      <p id="bookmark-dialog-page" class="small-copy"></p>
+      <label>Nota<input id="bookmark-note" maxlength="120" placeholder="Es. compito di matematica da fare"></label>
+      <div class="dialog-actions"><button type="button" data-dialog-close class="button secondary">Annulla</button><button class="button primary" value="default">Salva segnalibro</button></div>
+    </form>
+  </dialog>
 
   <dialog id="photo-dialog" class="photo-dialog">
     <div class="photo-viewer"><img id="photo-viewer-image" alt=""><div class="photo-viewer-bar"><strong id="photo-viewer-title"></strong><button type="button" data-dialog-close class="icon-button" aria-label="Chiudi">×</button></div></div>

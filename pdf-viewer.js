@@ -40,6 +40,11 @@ class Reader {
     this.loading = document.querySelector('#reader-loading');
     this.pageNumberInput = document.querySelector('#page-number');
     this.pdf = null;
+    // Il documento da solo non si sa chiudere: in PDF.js il metodo per liberare
+    // la memoria sta sul compito di caricamento, non sul documento. Va tenuto,
+    // altrimenti ogni libro aperto lascia dietro un worker e una copia intera
+    // del PDF che nessuno libera piu'.
+    this.caricamento = null;
     this.book = null;
     this.pageNumber = 1;
     this.doppia = false;
@@ -116,6 +121,16 @@ class Reader {
       event.currentTarget.classList.toggle('active', notte);
     });
     document.querySelector('#toggle-bookmark').addEventListener('click', () => this.toggleBookmark());
+    document.querySelector('#toggle-bookmark-list').addEventListener('click', (event) => {
+      const pannello = document.querySelector('#bookmark-panel');
+      pannello.hidden = !pannello.hidden;
+      event.currentTarget.classList.toggle('active', !pannello.hidden);
+      if (!pannello.hidden) this.mostraSegnalibri();
+    });
+    document.querySelector('#bookmark-form').addEventListener('submit', (event) => {
+      event.preventDefault();
+      this.salvaSegnalibro();
+    });
     document.querySelector('#reader-fullscreen').addEventListener('click', () => this.setSchermoPieno(!this.schermoPieno));
     document.querySelector('#reader-exit-fullscreen').addEventListener('click', () => this.setSchermoPieno(false));
     // Col mouse il doppio clic riporta la pagina alla misura naturale. Sul
@@ -148,7 +163,11 @@ class Reader {
     document.querySelector('#reader-subject').textContent = this.book.materia;
     this.loading.hidden = false;
     try {
+      // Chi c'era prima se ne va davvero, anche se si passa da un libro
+      // all'altro senza chiudere quello aperto.
+      await this.liberaDocumento();
       const task = pdfjsLib.getDocument({ data: await this.book.blob.arrayBuffer() });
+      this.caricamento = task;
       this.pdf = await task.promise;
       this.pageNumber = this.allinea(Math.max(1, Math.min(Number(page || this.book.ultimaPagina || 1), this.pdf.numPages)));
       this.pageNumberInput.max = this.pdf.numPages;
@@ -163,11 +182,24 @@ class Reader {
     }
   }
 
-  async close() {
+  // Lascia andare il documento aperto: ferma il disegno in corso, chiude il
+  // compito di caricamento (ed è questo che spegne il worker e libera il PDF) e
+  // smette di guardare le miniature.
+  async liberaDocumento() {
     this.renderTask?.cancel?.();
     this.renderTask2?.cancel?.();
-    await this.pdf?.destroy?.().catch(() => {});
+    this.renderTask = null;
+    this.renderTask2 = null;
+    this.thumbnailObserver?.disconnect();
+    this.thumbnailObserver = null;
+    const task = this.caricamento;
+    this.caricamento = null;
     this.pdf = null;
+    if (task) await task.destroy().catch(() => {});
+  }
+
+  async close() {
+    await this.liberaDocumento();
     this.book = null;
     this.drawing.setElements([]);
     this.drawing2.setElements([]);
@@ -178,6 +210,9 @@ class Reader {
     this.setSchermoPieno(false);
     this.swipe.annulla();
     this.evidenzia = '';
+    const pannello = document.querySelector('#bookmark-panel');
+    pannello.hidden = true;
+    document.querySelector('#toggle-bookmark-list').classList.remove('active');
     this.root.hidden = true;
     document.body.classList.remove('workspace-open');
     document.dispatchEvent(new CustomEvent('skooling:reader-closed'));
@@ -260,7 +295,7 @@ class Reader {
     }
   }
 
-  async renderPage() {
+  async renderPage({ mantieniPosizione = false } = {}) {
     if (!this.pdf) return;
     const corsa = ++this.renderCorsa;
     this.loading.hidden = false;
@@ -290,10 +325,14 @@ class Reader {
       await DB.put('libri', { ...this.book, ultimaPagina: this.pageNumber });
       this.book.ultimaPagina = this.pageNumber;
       this.updateBookmarkButton();
+      this.mostraSegnalibri();
       for (const nearby of [this.pageNumber - 1, this.pageNumber + this.passo() + 1]) {
         if (nearby >= 1 && nearby <= this.pdf.numPages) this.pdf.getPage(nearby).catch(() => {});
       }
-      this.scroll.scrollTo({ top: 0, left: 0 });
+      // Cambiando pagina si riparte dall'alto. Ingrandendo no: si resta dove si
+      // stava guardando, altrimenti dopo ogni pizzico si finisce in cima al
+      // foglio e bisogna ritrovare il punto col dito.
+      if (!mantieniPosizione) this.scroll.scrollTo({ top: 0, left: 0 });
     } catch (error) {
       // Si avvisa solo per un guasto vero dell'ultima richiesta: un render
       // annullato o sorpassato da uno più nuovo non è un errore da mostrare.
@@ -307,15 +346,42 @@ class Reader {
     }
   }
 
-  async setZoom(value) {
+  // Ingrandisce la pagina. `ancora` è il punto dello schermo che deve restare
+  // fermo sotto le dita: senza, resta fermo il centro di quel che si vede.
+  async setZoom(value, ancora = null) {
     const prossimo = Math.max(0.75, Math.min(3.5, value));
     // Ingrandimento identico a quello di adesso: non c'è nulla da ridisegnare.
     if (Math.abs(prossimo - this.zoom) < 0.005) {
-      this.pagesBox.style.transform = '';
+      this.azzeraAnteprima();
       return;
     }
+    const foglio = this.pageWrap.getBoundingClientRect();
+    const fermo = ancora || {
+      x: this.scroll.getBoundingClientRect().left + this.scroll.clientWidth / 2,
+      y: this.scroll.getBoundingClientRect().top + this.scroll.clientHeight / 2,
+    };
+    // Dove cade quel punto sul foglio, in frazioni di foglio: è l'unica misura
+    // che resta valida anche dopo che il foglio ha cambiato dimensione.
+    const quotaX = foglio.width ? (fermo.x - foglio.left) / foglio.width : 0.5;
+    const quotaY = foglio.height ? (fermo.y - foglio.top) / foglio.height : 0.5;
+
     this.zoom = prossimo;
-    await this.renderPage();
+    await this.renderPage({ mantieniPosizione: true });
+    this.riportaSotto(quotaX, quotaY, fermo);
+  }
+
+  // Rimette sotto il punto indicato la stessa frazione di foglio che c'era
+  // prima di ingrandire.
+  riportaSotto(quotaX, quotaY, fermo) {
+    const nuovo = this.pageWrap.getBoundingClientRect();
+    if (!nuovo.width || !nuovo.height) return;
+    this.scroll.scrollLeft += (nuovo.left + quotaX * nuovo.width) - fermo.x;
+    this.scroll.scrollTop += (nuovo.top + quotaY * nuovo.height) - fermo.y;
+  }
+
+  azzeraAnteprima() {
+    this.pagesBox.style.transform = '';
+    this.pagesBox.style.transformOrigin = '';
   }
 
   handleTouchGesture(phase, event, touches) {
@@ -325,7 +391,18 @@ class Reader {
       this.ultimoPunto = null;
       if (dita.length === 2) {
         const [a, b] = dita;
-        this.pinch = { distance: Math.hypot(a.x - b.x, a.y - b.y) || 1, zoom: this.zoom, preview: this.zoom };
+        // Il riquadro dei fogli senza trasformazione: è il riferimento da cui
+        // si calcola l'anteprima mentre le dita si muovono.
+        this.azzeraAnteprima();
+        const riquadro = this.pagesBox.getBoundingClientRect();
+        this.pinch = {
+          distance: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+          zoom: this.zoom,
+          preview: this.zoom,
+          origine: { x: riquadro.left, y: riquadro.top },
+          partenza: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+          centro: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+        };
       }
       return;
     }
@@ -335,7 +412,15 @@ class Reader {
         const [a, b] = dita;
         const distance = Math.hypot(a.x - b.x, a.y - b.y) || 1;
         this.pinch.preview = Math.max(0.75, Math.min(3.5, this.pinch.zoom * distance / this.pinch.distance));
-        this.pagesBox.style.transform = `scale(${this.pinch.preview / this.zoom})`;
+        this.pinch.centro = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        // Il foglio cresce da sotto le dita e le segue: il punto toccato
+        // all'inizio resta sotto le dita anche mentre si allargano e si
+        // spostano. È una sola trasformazione, la fa la scheda grafica.
+        const rapporto = this.pinch.preview / this.zoom;
+        const spostaX = this.pinch.centro.x - this.pinch.origine.x - rapporto * (this.pinch.partenza.x - this.pinch.origine.x);
+        const spostaY = this.pinch.centro.y - this.pinch.origine.y - rapporto * (this.pinch.partenza.y - this.pinch.origine.y);
+        this.pagesBox.style.transformOrigin = '0 0';
+        this.pagesBox.style.transform = `translate(${spostaX}px, ${spostaY}px) scale(${rapporto})`;
         return;
       }
       if (touches.size === 1) this.scorriFoglio(touches);
@@ -349,15 +434,16 @@ class Reader {
     const direzione = this.zoom <= 1.01 ? this.swipe.fine(touches) : (this.swipe.annulla(), 0);
     if (direzione) {
       this.pinch = null;
-      this.pagesBox.style.transform = '';
+      this.azzeraAnteprima();
       this.lastTap = 0;
       this.goTo(this.pageNumber + direzione * this.passo());
       return;
     }
     if (this.pinch) {
-      const preview = this.pinch.preview;
+      const { preview, centro } = this.pinch;
       this.pinch = null;
-      this.setZoom(preview);
+      this.azzeraAnteprima();
+      this.setZoom(preview, centro);
       return;
     }
     if (event.pointerType === 'touch') {
@@ -478,11 +564,70 @@ class Reader {
     button.setAttribute('aria-label', active ? 'Rimuovi segnalibro' : 'Aggiungi segnalibro');
   }
 
+  // La stella apre il segnalibro della pagina: se non c'è lo si crea con la sua
+  // nota, se c'è si può cambiare la nota o toglierlo.
   async toggleBookmark() {
-    const bookmark = (await this.bookmarks()).find((item) => item.pagina === this.pageNumber);
-    if (bookmark) await DB.delete('segnalibri', bookmark.id);
-    else await DB.put('segnalibri', { id: `bookmark-${this.book.id}-${this.pageNumber}`, idLibro: this.book.id, pagina: this.pageNumber, timestamp: Date.now() });
+    if (!this.book) return;
+    const esistente = (await this.bookmarks()).find((item) => item.pagina === this.pageNumber);
+    document.querySelector('#bookmark-dialog-title').textContent = esistente ? 'Segnalibro della pagina' : 'Nuovo segnalibro';
+    document.querySelector('#bookmark-dialog-page').textContent = `Pagina ${this.pageNumber} di “${this.book.titolo}”.`;
+    document.querySelector('#bookmark-note').value = esistente?.nota || '';
+    this.paginaSegnalibro = this.pageNumber;
+    document.querySelector('#bookmark-dialog').showModal();
+  }
+
+  async salvaSegnalibro() {
+    const pagina = this.paginaSegnalibro ?? this.pageNumber;
+    const nota = document.querySelector('#bookmark-note').value.trim();
+    document.querySelector('#bookmark-dialog').close();
+    if (!this.book) return;
+    await DB.put('segnalibri', {
+      id: `bookmark-${this.book.id}-${pagina}`,
+      idLibro: this.book.id,
+      pagina,
+      nota,
+      timestamp: Date.now(),
+    });
     await this.updateBookmarkButton();
+    await this.mostraSegnalibri();
+  }
+
+  async togliSegnalibro(segnalibro) {
+    await DB.delete('segnalibri', segnalibro.id);
+    await this.updateBookmarkButton();
+    await this.mostraSegnalibri();
+  }
+
+  // L'elenco dei segnalibri del libro, in ordine di pagina: da qui si salta
+  // dove si vuole, non solo all'ultimo segnato.
+  async mostraSegnalibri() {
+    const pannello = document.querySelector('#bookmark-panel');
+    if (pannello.hidden || !this.book) return;
+    const elenco = document.querySelector('#bookmark-list');
+    const segnalibri = (await this.bookmarks()).sort((a, b) => a.pagina - b.pagina);
+    elenco.replaceChildren();
+    document.querySelector('#bookmark-empty').hidden = segnalibri.length > 0;
+    for (const segnalibro of segnalibri) {
+      const riga = document.createElement('div');
+      riga.className = 'bookmark-row';
+      const vai = document.createElement('button');
+      vai.type = 'button';
+      vai.className = `bookmark-item${segnalibro.pagina === this.pageNumber ? ' corrente' : ''}`;
+      const dove = document.createElement('strong');
+      dove.textContent = `Pagina ${segnalibro.pagina}`;
+      const nota = document.createElement('span');
+      nota.textContent = segnalibro.nota || 'Senza nota';
+      vai.append(dove, nota);
+      vai.addEventListener('click', () => this.goTo(segnalibro.pagina));
+      const togli = document.createElement('button');
+      togli.type = 'button';
+      togli.className = 'bookmark-remove danger-text';
+      togli.setAttribute('aria-label', `Togli il segnalibro di pagina ${segnalibro.pagina}`);
+      togli.textContent = '×';
+      togli.addEventListener('click', () => this.togliSegnalibro(segnalibro));
+      riga.append(vai, togli);
+      elenco.append(riga);
+    }
   }
 }
 

@@ -1,7 +1,7 @@
 // Lettore PDF basato sulla copia locale di PDF.js.
 import * as pdfjsLib from './vendor/pdf.mjs';
 import { DB } from './db.js';
-import { DrawingSurface, SurfaceGroup, attachToolbox, creaGestoCondiviso, creaRilevatoreSwipe } from './strumenti.js';
+import { DrawingSurface, SurfaceGroup, attachToolbox, creaGestoCondiviso, creaRilevatoreSwipe, ditaAppoggiate } from './strumenti.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = './vendor/pdf.worker.mjs';
 
@@ -58,6 +58,9 @@ class Reader {
     this.renderInCoda = Promise.resolve();
     // Sfioramento orizzontale: cambia pagina senza toccare i pulsanti.
     this.swipe = creaRilevatoreSwipe();
+    // Il foglio non lo scorre più il browser: lo scorre l'app, così la penna
+    // può scrivere senza che la pagina le scappi sotto.
+    this.ultimoPunto = null;
     this.schermoPieno = false;
     this.astuccioAperto = false;
     // Un solo gesto per le due pagine: le due dita possono cadere su fogli diversi.
@@ -82,8 +85,6 @@ class Reader {
   // Il dito disegna oppure scorre: la scelta vale per tutte e due le pagine.
   setDrawWithFinger(value) {
     this.group.setDrawWithFinger(value);
-    this.annotationCanvas.classList.toggle('finger-draw', Boolean(value));
-    this.annotationCanvas2.classList.toggle('finger-draw', Boolean(value));
   }
 
   bind() {
@@ -293,25 +294,30 @@ class Reader {
   }
 
   handleTouchGesture(phase, event, touches) {
+    const dita = ditaAppoggiate(touches);
     if (phase === 'start') {
       this.swipe.inizio(touches);
-      if (touches.size === 2) {
-        const [a, b] = [...touches.values()];
+      this.ultimoPunto = null;
+      if (dita.length === 2) {
+        const [a, b] = dita;
         this.pinch = { distance: Math.hypot(a.x - b.x, a.y - b.y) || 1, zoom: this.zoom, preview: this.zoom };
       }
       return;
     }
     if (phase === 'move') {
       this.swipe.muovi(touches);
-      if (this.pinch && touches.size >= 2) {
-        const [a, b] = [...touches.values()];
+      if (this.pinch && dita.length >= 2) {
+        const [a, b] = dita;
         const distance = Math.hypot(a.x - b.x, a.y - b.y) || 1;
         this.pinch.preview = Math.max(0.75, Math.min(3.5, this.pinch.zoom * distance / this.pinch.distance));
         this.pagesBox.style.transform = `scale(${this.pinch.preview / this.zoom})`;
+        return;
       }
+      if (touches.size === 1) this.scorriFoglio(touches);
       return;
     }
     if (phase !== 'end') return;
+    this.ultimoPunto = null;
     if (event.pointerType === 'touch') this.ultimoTocco = Date.now();
     // A pagina ingrandita le dita servono a spostare e a ridurre: si cambia
     // pagina soltanto quando il foglio è alla sua misura naturale.
@@ -338,6 +344,19 @@ class Reader {
         this.lastTap = now;
       }
     }
+  }
+
+  // Un dito solo che non scrive porta in giro il foglio. Lo scorrimento lo fa
+  // l'app perché al browser il foglio è vietato: altrimenti si riprenderebbe
+  // anche i tratti della penna.
+  scorriFoglio(touches) {
+    const [punto] = [...touches.values()];
+    if (!punto) return;
+    if (this.ultimoPunto) {
+      this.scroll.scrollLeft -= punto.x - this.ultimoPunto.x;
+      this.scroll.scrollTop -= punto.y - this.ultimoPunto.y;
+    }
+    this.ultimoPunto = { x: punto.x, y: punto.y };
   }
 
   // Vista a schermo intero: restano soltanto le pagine, senza barra in alto,

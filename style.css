@@ -82,6 +82,34 @@ h2 { margin: 0; font-size: 21px; line-height: 1.15; }
 .empty-book { width: 96px; height: 126px; display: grid; place-items: center; background: var(--blue-soft); border: 5px solid #fff; border-left: 12px solid var(--blue); border-radius: 7px 16px 16px 7px; box-shadow: var(--shadow); transform: rotate(-4deg); }
 .empty-book span { font: italic 700 44px Georgia, serif; color: var(--blue); }
 .empty-sheet { width: 102px; height: 126px; border-radius: 8px; box-shadow: var(--shadow); background-color: #fff; background-image: repeating-linear-gradient(transparent 0 20px, #cbd8f5 21px 22px); border-left: 7px solid var(--coral); transform: rotate(3deg); }
+.empty-photo { width: 86px; height: 86px; display: grid; place-items: center; border-radius: 26px; background: var(--yellow); color: #7a5a00; font-size: 38px; }
+
+/* Album delle attivita' */
+.album-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 20px; }
+.album-card { position: relative; min-width: 0; }
+.album-open { width: 100%; padding: 0; border: 0; background: transparent; display: block; }
+.album-open img, .album-missing { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block; border-radius: 18px; box-shadow: var(--shadow); background: var(--desk); }
+.album-missing { display: grid; place-items: center; padding: 14px; text-align: center; color: var(--muted); font-size: 13px; }
+.album-info { padding: 12px 4px 0; }
+.album-info strong { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 16px; }
+.album-info span { display: block; margin-top: 3px; color: var(--muted); font-size: 13px; }
+
+/* Foto dentro un compito */
+.photo-field { display: grid; gap: 9px; }
+.field-label { color: var(--muted); font-size: 13px; font-weight: 750; }
+#task-photo-preview { max-height: 190px; width: auto; align-self: start; border-radius: 14px; box-shadow: var(--shadow); }
+.task-photo { flex: none; width: 62px; height: 62px; padding: 0; border: 0; border-radius: 14px; overflow: hidden; background: var(--desk); }
+.task-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* Visore della foto a schermo pieno */
+.photo-dialog { width: min(94vw, 1100px); max-width: none; padding: 0; border: 0; border-radius: 20px; background: #0d1424; }
+.photo-dialog::backdrop { background: rgb(8 14 28 / 74%); }
+.photo-viewer { position: relative; display: grid; }
+.photo-viewer img { width: 100%; max-height: 82dvh; object-fit: contain; display: block; border-radius: 20px; }
+.photo-viewer-bar { position: absolute; inset: 0 0 auto 0; padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: white; background: linear-gradient(rgb(6 11 22 / 74%), transparent); border-radius: 20px 20px 0 0; }
+.photo-viewer-bar strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
+.photo-viewer-bar .icon-button { background: rgb(255 255 255 / 22%); color: white; }
+
 .empty-check { width: 76px; height: 76px; display: grid; place-items: center; border-radius: 24px; background: var(--mint); color: #08724c; font-size: 40px; }
 
 .notebook-card { border: 0; background: transparent; }
@@ -143,10 +171,11 @@ input[role="switch"]:checked::after { transform: translateX(22px); }
 .page-wrap { position: relative; flex: none; background: white; box-shadow: 0 12px 36px rgb(11 28 68 / 22%); transform-origin: top center; }
 .page-wrap.night { filter: invert(.88) hue-rotate(180deg); background: #111827; }
 #pdf-canvas { display: block; width: 100%; height: 100%; }
-/* Niente pinch-zoom al browser: l'ingrandimento lo fa l'app, e deve agire
-   solo sulla superficie di lettura, non sulle barre e sugli indicatori. */
-.drawing-canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: pan-x pan-y; }
-.drawing-canvas.finger-draw { touch-action: none; }
+/* Sul foglio i gesti li governa l'app, mai il browser. Se qui si concedesse
+   `pan` o `pinch-zoom`, il browser si prenderebbe il trascinamento e la penna
+   sposterebbe la pagina invece di scrivere, per di piu' ingrandendo tutta
+   l'interfaccia. Scorrimento, ingrandimento e sfogliata li fa il codice. */
+.drawing-canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
 .text-inplace { position: absolute; z-index: 6; min-width: 1ch; max-width: 92%; padding: 2px 5px; outline: 2px dashed #2457d6; outline-offset: 1px; background: rgb(255 255 255 / 78%); border-radius: 5px; line-height: 1.2; white-space: pre-wrap; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; touch-action: auto; caret-color: #2457d6; }
 .page-controls { min-height: calc(68px + env(safe-area-inset-bottom)); padding: 9px 14px calc(9px + env(safe-area-inset-bottom)); display: flex; align-items: center; justify-content: center; gap: 9px; background: white; border-top: 1px solid var(--line); }
 /* A schermo intero restano soltanto le pagine: spariscono la barra in alto e
@@ -209,8 +238,12 @@ input[role="switch"]:checked::after { transform: translateX(22px); }
 .notebook-paper { position: relative; width: min(78vw, 780px); aspect-ratio: 1 / 1.414; background-color: #fffefa; box-shadow: 0 12px 36px rgb(11 28 68 / 22%); }
 .notebook-paper.lined { background-image: linear-gradient(90deg, transparent 0 8%, rgb(244 129 129 / 55%) 8% 8.2%, transparent 8.2%), repeating-linear-gradient(transparent 0 31px, #c9d9f2 32px 33px); }
 .notebook-paper.squared { background-image: linear-gradient(90deg, transparent 0 8%, rgb(244 129 129 / 55%) 8% 8.2%, transparent 8.2%), repeating-linear-gradient(0deg, transparent 0 23px, #d5e0f1 24px 25px), repeating-linear-gradient(90deg, transparent 0 23px, #d5e0f1 24px 25px); }
-.notebook-paper .drawing-canvas { touch-action: pan-x pan-y; }
-.notebook-paper .drawing-canvas.finger-draw { touch-action: none; }
+/* Foglio bianco: nessuna guida, si disegna libero. */
+.notebook-paper.blank { background-image: none; }
+/* Pentagramma: cinque righe vicine, poi lo stacco prima del rigo dopo. */
+.notebook-paper.staff { background-image: repeating-linear-gradient(transparent 0 15px, #5b6472 15px 16px, transparent 16px 31px, #5b6472 31px 32px, transparent 32px 47px, #5b6472 47px 48px, transparent 48px 63px, #5b6472 63px 64px, transparent 64px 79px, #5b6472 79px 80px, transparent 80px 150px); }
+/* Millimetrato: quadretti fini da un millimetro e righe marcate ogni cinque. */
+.notebook-paper.graph { background-image: repeating-linear-gradient(0deg, transparent 0 19px, #9cc4a8 19px 20px), repeating-linear-gradient(90deg, transparent 0 19px, #9cc4a8 19px 20px), repeating-linear-gradient(0deg, transparent 0 3px, #dcebe1 3px 4px), repeating-linear-gradient(90deg, transparent 0 3px, #dcebe1 3px 4px); }
 
 dialog { width: min(92vw, 520px); max-height: 90dvh; border: 0; border-radius: 24px; padding: 0; box-shadow: 0 30px 90px rgb(10 23 54 / 35%); }
 dialog::backdrop { background: rgb(13 25 53 / 48%); backdrop-filter: blur(5px); }
@@ -219,13 +252,16 @@ dialog::backdrop { background: rgb(13 25 53 / 48%); backdrop-filter: blur(5px); 
 .dialog-form label { display: grid; gap: 7px; font-weight: 700; font-size: 13px; }
 .dialog-form input, .dialog-form textarea, .dialog-form select { width: 100%; min-height: 48px; border: 1px solid var(--line); border-radius: 13px; padding: 11px 13px; background: #fff; }
 .dialog-form textarea { resize: vertical; }
-.dialog-form fieldset { border: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.dialog-form fieldset { border: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 12px; }
 .dialog-form legend { margin-bottom: 9px; font-size: 13px; font-weight: 700; }
 .choice-card { min-height: 100px; border: 2px solid var(--line); border-radius: 15px; padding: 12px; display: grid !important; grid-template-columns: auto 1fr; align-items: center; gap: 10px !important; }
 .choice-card:has(input:checked) { border-color: var(--blue); background: var(--blue-soft); }
 .paper-sample { width: 58px; height: 72px; border-radius: 4px; background-color: white; box-shadow: 0 2px 8px rgb(0 0 0 / 12%); }
 .paper-sample.lined { background-image: repeating-linear-gradient(transparent 0 10px, #cbd8f5 11px 12px); }
 .paper-sample.squared { background-image: repeating-linear-gradient(0deg, transparent 0 9px, #d5e0f1 10px 11px), repeating-linear-gradient(90deg, transparent 0 9px, #d5e0f1 10px 11px); }
+.paper-sample.blank { background-image: none; }
+.paper-sample.staff { background-image: repeating-linear-gradient(transparent 0 4px, #5b6472 4px 5px, transparent 5px 9px, #5b6472 9px 10px, transparent 10px 14px, #5b6472 14px 15px, transparent 15px 19px, #5b6472 19px 20px, transparent 20px 24px, #5b6472 24px 25px, transparent 25px 44px); }
+.paper-sample.graph { background-image: repeating-linear-gradient(0deg, transparent 0 11px, #9cc4a8 11px 12px), repeating-linear-gradient(90deg, transparent 0 11px, #9cc4a8 11px 12px), repeating-linear-gradient(0deg, transparent 0 2px, #dcebe1 2px 3px), repeating-linear-gradient(90deg, transparent 0 2px, #dcebe1 2px 3px); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; }
 
 .progress-overlay { position: fixed; z-index: 300; inset: 0; background: rgb(15 29 61 / 54%); display: grid; place-items: center; padding: 24px; }

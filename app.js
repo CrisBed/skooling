@@ -2,10 +2,12 @@
 import { DB, createId } from './db.js';
 import { PDFViewer, extractPdfCover } from './pdf-viewer.js';
 import { NotebookManager } from './quaderni.js';
+import { AlbumManager, ridimensionaFoto } from './album.js';
 import { downloadBlob } from './strumenti.js';
 
-const state = { books: [], tasks: [], taskFilter: 'todo', coverUrls: [] };
+const state = { books: [], tasks: [], taskFilter: 'todo', coverUrls: [], fotoCompito: null, urlCompiti: [] };
 let notebooks;
+let album;
 let toastTimer;
 
 export function notify(text, error = false) {
@@ -34,12 +36,26 @@ export function navigate(view) {
   if (view === 'libreria') renderLibrary();
   if (view === 'quaderni') notebooks.renderList();
   if (view === 'compiti') renderTasks();
+  if (view === 'album') album.renderList();
   if (view === 'impostazioni') updateStorage();
   document.querySelector('#main-content').scrollTo?.(0, 0);
   verificaAggiornamentoInSospeso();
 }
 
 export const App = { navigate, notify, showProgress, hideProgress };
+
+// Visore della foto a schermo pieno, usato dall'album e dai compiti.
+let urlVisore;
+export function mostraFoto({ titolo = '', immagine } = {}) {
+  if (!(immagine instanceof Blob)) return;
+  if (urlVisore) URL.revokeObjectURL(urlVisore);
+  urlVisore = URL.createObjectURL(immagine);
+  const dialogo = document.querySelector('#photo-dialog');
+  document.querySelector('#photo-viewer-image').src = urlVisore;
+  document.querySelector('#photo-viewer-image').alt = titolo;
+  document.querySelector('#photo-viewer-title').textContent = titolo;
+  dialogo.showModal();
+}
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[char]);
@@ -201,15 +217,46 @@ async function populateTaskLinks(selected = '') {
   document.querySelector('#task-link-page-row').hidden = !select.value;
 }
 
+// La foto scelta per il compito che si sta scrivendo: si tiene da parte finché
+// il compito non viene salvato.
+function mostraFotoCompito(immagine) {
+  state.fotoCompito = immagine instanceof Blob ? immagine : null;
+  const anteprima = document.querySelector('#task-photo-preview');
+  const togli = document.querySelector('#task-photo-remove');
+  if (anteprima.src.startsWith('blob:')) URL.revokeObjectURL(anteprima.src);
+  if (!state.fotoCompito) {
+    anteprima.removeAttribute('src');
+    anteprima.hidden = true;
+    togli.hidden = true;
+    return;
+  }
+  anteprima.src = URL.createObjectURL(state.fotoCompito);
+  anteprima.hidden = false;
+  togli.hidden = false;
+}
+
 function bindTasks() {
   document.querySelector('#new-task').addEventListener('click', async () => {
     document.querySelector('#task-form').reset();
     document.querySelector('#edit-task-id').value = '';
     document.querySelector('#task-dialog-title').textContent = 'Nuovo compito';
     document.querySelector('#task-due').value = tomorrowDate();
+    mostraFotoCompito(null);
     await populateTaskLinks();
     document.querySelector('#task-dialog').showModal();
   });
+  document.querySelector('#task-photo').addEventListener('change', async (event) => {
+    const [file] = event.target.files;
+    event.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) return notify('Scegli una foto.', true);
+    try {
+      mostraFotoCompito(await ridimensionaFoto(file));
+    } catch {
+      notify('Questa foto non si riesce a leggere. Riprova a scattarla.', true);
+    }
+  });
+  document.querySelector('#task-photo-remove').addEventListener('click', () => mostraFotoCompito(null));
   document.querySelector('#task-link').addEventListener('change', (event) => { document.querySelector('#task-link-page-row').hidden = !event.target.value; });
   document.querySelectorAll('[data-task-filter]').forEach((button) => button.addEventListener('click', () => {
     state.taskFilter = button.dataset.taskFilter;
@@ -228,8 +275,10 @@ function bindTasks() {
       consegna: document.querySelector('#task-due').value,
       stato: previous?.stato || 'todo',
       collegamento: tipo ? { tipo, id: linkId, pagina: Number(document.querySelector('#task-link-page').value) || 1 } : null,
+      foto: state.fotoCompito,
       data: previous?.data || Date.now(),
     });
+    mostraFotoCompito(null);
     document.querySelector('#task-dialog').close();
     await renderTasks();
     notify('Compito salvato.');
@@ -238,6 +287,8 @@ function bindTasks() {
 
 async function renderTasks() {
   state.tasks = (await DB.getAll('compiti')).sort((a, b) => a.consegna.localeCompare(b.consegna));
+  state.urlCompiti.forEach((url) => URL.revokeObjectURL(url));
+  state.urlCompiti = [];
   const filtered = state.tasks.filter((task) => state.taskFilter === 'all' || task.stato === state.taskFilter);
   document.querySelector('#task-empty').hidden = filtered.length > 0;
   const list = document.querySelector('#task-list');
@@ -251,8 +302,15 @@ function makeTaskCard(task) {
   const due = new Date(`${task.consegna}T12:00:00`);
   const overdue = task.stato !== 'done' && due < new Date(new Date().toDateString());
   const dateLabel = new Intl.DateTimeFormat('it-IT', { weekday: 'short', day: 'numeric', month: 'short' }).format(due);
-  article.innerHTML = `<button type="button" class="task-check" aria-label="${task.stato === 'done' ? 'Segna da fare' : 'Segna fatto'}">✓</button><div class="task-copy"><strong>${escapeHtml(task.descrizione)}</strong><span>${escapeHtml(task.materia)}${task.collegamento ? ' · Ha un collegamento' : ''}</span></div><div class="task-date${overdue ? ' overdue' : ''}">${overdue ? 'Scaduto · ' : ''}${dateLabel}</div><div class="task-actions">${task.collegamento ? '<button type="button" data-open-link aria-label="Apri collegamento">↗</button>' : ''}<button type="button" data-edit aria-label="Modifica compito">✎</button><button type="button" data-delete class="danger-text" aria-label="Elimina compito">×</button></div>`;
+  let miniatura = '';
+  if (task.foto instanceof Blob) {
+    const url = URL.createObjectURL(task.foto);
+    state.urlCompiti.push(url);
+    miniatura = `<button type="button" class="task-photo" aria-label="Apri la foto del compito"><img src="${url}" alt=""></button>`;
+  }
+  article.innerHTML = `<button type="button" class="task-check" aria-label="${task.stato === 'done' ? 'Segna da fare' : 'Segna fatto'}">✓</button>${miniatura}<div class="task-copy"><strong>${escapeHtml(task.descrizione)}</strong><span>${escapeHtml(task.materia)}${task.collegamento ? ' · Ha un collegamento' : ''}</span></div><div class="task-date${overdue ? ' overdue' : ''}">${overdue ? 'Scaduto · ' : ''}${dateLabel}</div><div class="task-actions">${task.collegamento ? '<button type="button" data-open-link aria-label="Apri collegamento">↗</button>' : ''}<button type="button" data-edit aria-label="Modifica compito">✎</button><button type="button" data-delete class="danger-text" aria-label="Elimina compito">×</button></div>`;
   article.querySelector('.task-check').addEventListener('click', async () => { task.stato = task.stato === 'done' ? 'todo' : 'done'; await DB.put('compiti', task); renderTasks(); });
+  article.querySelector('.task-photo')?.addEventListener('click', () => mostraFoto({ titolo: task.descrizione, immagine: task.foto }));
   article.querySelector('[data-open-link]')?.addEventListener('click', () => openTaskLink(task));
   article.querySelector('[data-edit]').addEventListener('click', () => editTask(task));
   article.querySelector('[data-delete]').addEventListener('click', async () => {
@@ -269,6 +327,7 @@ async function editTask(task) {
   document.querySelector('#task-subject').value = task.materia;
   document.querySelector('#task-description').value = task.descrizione;
   document.querySelector('#task-due').value = task.consegna;
+  mostraFotoCompito(task.foto);
   const linkValue = task.collegamento ? `${task.collegamento.tipo}|${task.collegamento.id}` : '';
   await populateTaskLinks(linkValue);
   document.querySelector('#task-link-page').value = task.collegamento?.pagina || 1;
@@ -387,6 +446,7 @@ async function start() {
   try {
     await DB.init();
     notebooks = new NotebookManager({ notify, showProgress, hideProgress });
+    album = new AlbumManager({ notify, showProgress, hideProgress, mostraFoto });
     bindNavigation();
     bindLibrary();
     bindTasks();
@@ -394,7 +454,7 @@ async function start() {
     const fingerSetting = await DB.get('impostazioni', 'disegna-dito');
     document.querySelector('#global-finger-draw').checked = Boolean(fingerSetting?.valore);
     PDFViewer.setDrawWithFinger(Boolean(fingerSetting?.valore));
-    await Promise.all([renderLibrary(), notebooks.renderList(), renderTasks(), updateStorage()]);
+    await Promise.all([renderLibrary(), notebooks.renderList(), renderTasks(), album.renderList(), updateStorage()]);
     await registerServiceWorker();
   } catch (error) {
     notify(error.message || 'Skooling non riesce ad avviarsi. Ricarica la pagina.', true);

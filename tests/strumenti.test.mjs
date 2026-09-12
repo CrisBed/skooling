@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizePoint, hitTestElement, HistoryStack, makePdfFromJpegs, drawElement, DrawingSurface, creaGestoCondiviso, creaRilevatoreSwipe } from '../strumenti.js';
+import { normalizePoint, hitTestElement, HistoryStack, makePdfFromJpegs, drawElement, DrawingSurface, creaGestoCondiviso, creaRilevatoreSwipe, spostaElemento, riquadroElemento, ditaAppoggiate } from '../strumenti.js';
 
 function makeCanvas() {
   const context = {
@@ -381,4 +381,58 @@ test('due dita che si aprono e tornano vicine non cambiano pagina', () => {
   orologio.valore += 80;
   rilevatore.muovi(dita({ x: 300, y: 400 }, { x: 400, y: 400 })); // e tornano vicine
   assert.equal(rilevatore.fine(dita({ x: 300, y: 400 }, { x: 400, y: 400 })), 0);
+});
+
+// ---- Spostare una figura o un testo gia' sul foglio ------------------------
+
+test('un tratto a mano libera si sposta tutto intero, senza cambiare forma', () => {
+  const originale = { tipo: 'penna', punti: [{ x: 0.2, y: 0.2, pressure: 0.4 }, { x: 0.4, y: 0.5, pressure: 0.7 }] };
+  const spostato = spostaElemento(structuredClone(originale), originale, 0.1, -0.05);
+  assert.deepEqual(spostato.punti.map((p) => [+p.x.toFixed(3), +p.y.toFixed(3)]), [[0.3, 0.15], [0.5, 0.45]]);
+  assert.equal(spostato.punti[1].pressure, 0.7, 'la pressione del tratto non si perde');
+});
+
+test('una figura si sposta senza cambiare misura', () => {
+  const originale = { tipo: 'rettangolo', x1: 0.2, y1: 0.2, x2: 0.5, y2: 0.6 };
+  const spostato = spostaElemento({ ...originale }, originale, 0.2, 0.1);
+  assert.deepEqual(
+    [+spostato.x1.toFixed(3), +spostato.y1.toFixed(3), +spostato.x2.toFixed(3), +spostato.y2.toFixed(3)],
+    [0.4, 0.3, 0.7, 0.7],
+  );
+  assert.equal(+(spostato.x2 - spostato.x1).toFixed(3), +(originale.x2 - originale.x1).toFixed(3));
+  assert.equal(+(spostato.y2 - spostato.y1).toFixed(3), +(originale.y2 - originale.y1).toFixed(3));
+});
+
+test('una casella di testo si sposta senza cambiare contenuto', () => {
+  const originale = { tipo: 'testo', x: 0.1, y: 0.1, w: 0.3, h: 0.1, testo: 'ciao' };
+  const spostato = spostaElemento({ ...originale }, originale, 0.25, 0.3);
+  assert.equal(+spostato.x.toFixed(3), 0.35);
+  assert.equal(+spostato.y.toFixed(3), 0.4);
+  assert.equal(spostato.w, 0.3);
+  assert.equal(spostato.testo, 'ciao');
+});
+
+test('lo spostamento si ferma al bordo del foglio, non lo fa uscire', () => {
+  const originale = { tipo: 'rettangolo', x1: 0.6, y1: 0.1, x2: 0.9, y2: 0.3 };
+  const spostato = spostaElemento({ ...originale }, originale, 0.8, -0.8);
+  assert.equal(+spostato.x2.toFixed(3), 1, 'il lato destro si ferma sul bordo');
+  assert.equal(+spostato.y1.toFixed(3), 0, 'il lato alto si ferma sul bordo');
+  assert.equal(+(spostato.x2 - spostato.x1).toFixed(3), 0.3, 'la misura resta quella');
+});
+
+test('il riquadro di un elemento racchiude tutti i suoi punti', () => {
+  assert.deepEqual(riquadroElemento({ tipo: 'penna', punti: [{ x: 0.3, y: 0.8 }, { x: 0.1, y: 0.2 }] }),
+    { sinistra: 0.1, destra: 0.3, alto: 0.2, basso: 0.8 });
+  assert.equal(riquadroElemento({ tipo: 'penna', punti: [] }), null);
+});
+
+test('fra i puntatori del gesto contano come dita solo quelle vere', () => {
+  const puntatori = new Map([
+    [1, { x: 10, y: 10, tipo: 'touch' }],
+    [2, { x: 90, y: 10, tipo: 'pen' }],
+    [3, { x: 50, y: 60, tipo: 'touch' }],
+  ]);
+  assert.equal(ditaAppoggiate(puntatori).length, 2);
+  // senza il tipo si considera un dito, come nelle versioni precedenti
+  assert.equal(ditaAppoggiate(new Map([[1, { x: 0, y: 0 }]])).length, 1);
 });

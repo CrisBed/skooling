@@ -1,7 +1,22 @@
 // Persistenza locale di Skooling. Nessun dato lascia il dispositivo.
 export const DB_NAME = 'skooling-db';
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 export const STORE_NAMES = [
+  'libri',
+  'annotazioni',
+  'segnalibri',
+  'quaderni',
+  'paginequaderno',
+  'compiti',
+  'impostazioni',
+  'foto',
+];
+
+// Gli archivi che ci sono da sempre: un backup deve averli tutti, altrimenti
+// non e' un backup buono. Quelli aggiunti dopo, come le foto dell'album,
+// possono mancare in un file salvato con una versione precedente: in quel caso
+// si importano vuoti invece di rifiutare tutto il ripristino.
+export const STORE_NAMES_STORICI = [
   'libri',
   'annotazioni',
   'segnalibri',
@@ -19,6 +34,7 @@ const STORE_OPTIONS = {
   paginequaderno: { keyPath: 'id' },
   compiti: { keyPath: 'id' },
   impostazioni: { keyPath: 'id' },
+  foto: { keyPath: 'id' },
 };
 
 let openPromise;
@@ -83,7 +99,7 @@ export function validateBackup(value) {
   if (!value || value.formato !== 'skooling' || value.versione !== 1 || !value.stores) {
     throw new Error('Questo non è un backup di Skooling valido.');
   }
-  for (const name of STORE_NAMES) {
+  for (const name of STORE_NAMES_STORICI) {
     if (!Array.isArray(value.stores[name])) {
       throw new Error('Il backup di Skooling è incompleto e non è stato importato.');
     }
@@ -205,7 +221,8 @@ export const DB = {
       throw error;
     }
     const decoded = {};
-    for (const name of STORE_NAMES) decoded[name] = decodeValue(parsed.stores[name]);
+    // Un backup piu' vecchio non ha gli archivi aggiunti dopo: restano vuoti.
+    for (const name of STORE_NAMES) decoded[name] = decodeValue(parsed.stores[name] ?? []);
     const database = await openDatabase();
     const transaction = database.transaction(STORE_NAMES, 'readwrite');
     for (const name of STORE_NAMES) {

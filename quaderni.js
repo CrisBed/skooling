@@ -1,27 +1,72 @@
 // Gestione dei quaderni e delle loro pagine vettoriali.
 import { DB, createId } from './db.js';
-import { DrawingSurface, SurfaceGroup, attachToolbox, drawElement, canvasToJpeg, makePdfFromJpegs, downloadBlob, creaGestoCondiviso, creaRilevatoreSwipe } from './strumenti.js';
+import { DrawingSurface, SurfaceGroup, attachToolbox, drawElement, canvasToJpeg, makePdfFromJpegs, downloadBlob, creaGestoCondiviso, creaRilevatoreSwipe, ditaAppoggiate } from './strumenti.js';
 
 function safeFilename(value) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'quaderno';
 }
 
-function drawPaper(context, type, width, height) {
+// I tipi di foglio: il nome che si salva nel quaderno e la classe che lo
+// disegna a schermo. Aggiungerne uno vuol dire toccare questa tabella, il CSS
+// e il disegno per l'esportazione qui sotto.
+export const TIPI_FOGLIO = {
+  righe: 'lined',
+  quadretti: 'squared',
+  bianco: 'blank',
+  pentagramma: 'staff',
+  millimetrato: 'graph',
+};
+
+function riga(context, x1, y1, x2, y2) {
+  context.beginPath(); context.moveTo(x1, y1); context.lineTo(x2, y2); context.stroke();
+}
+
+// Ridisegna il foglio per l'esportazione in PNG e PDF: a schermo lo fa il CSS,
+// qui va rifatto col pennello perche' l'immagine esca uguale a quel che si vede.
+export function drawPaper(context, type, width, height) {
   context.fillStyle = '#fffefa';
   context.fillRect(0, 0, width, height);
+  if (type === 'bianco') return;
+
+  // Le misure a schermo sono pensate per un foglio largo 780: qui il foglio e'
+  // piu' grande, quindi le guide si allargano nella stessa proporzione.
+  const scala = width / 780;
+
+  if (type === 'pentagramma') {
+    context.strokeStyle = '#5b6472';
+    context.lineWidth = Math.max(1, 1.4 * scala);
+    const passoRiga = 16 * scala;   // distanza fra le cinque righe di un rigo
+    const passoRigo = 150 * scala;  // distanza fra un rigo e quello dopo
+    for (let alto = passoRigo * 0.35; alto + passoRiga * 4 < height; alto += passoRigo) {
+      for (let indice = 0; indice < 5; indice += 1) {
+        riga(context, 0, alto + indice * passoRiga, width, alto + indice * passoRiga);
+      }
+    }
+    return;
+  }
+
+  if (type === 'millimetrato') {
+    const fine = 4 * scala;
+    context.lineWidth = Math.max(0.5, 0.8 * scala);
+    context.strokeStyle = '#dcebe1';
+    for (let y = fine; y < height; y += fine) riga(context, 0, y, width, y);
+    for (let x = fine; x < width; x += fine) riga(context, x, 0, x, height);
+    context.lineWidth = Math.max(1, 1.4 * scala);
+    context.strokeStyle = '#9cc4a8';
+    for (let y = fine * 5; y < height; y += fine * 5) riga(context, 0, y, width, y);
+    for (let x = fine * 5; x < width; x += fine * 5) riga(context, x, 0, x, height);
+    return;
+  }
+
   context.strokeStyle = '#c9d9f2';
   context.lineWidth = 2;
   const spacing = type === 'quadretti' ? 36 : 46;
-  for (let y = spacing; y < height; y += spacing) {
-    context.beginPath(); context.moveTo(0, y); context.lineTo(width, y); context.stroke();
-  }
+  for (let y = spacing; y < height; y += spacing) riga(context, 0, y, width, y);
   if (type === 'quadretti') {
-    for (let x = spacing; x < width; x += spacing) {
-      context.beginPath(); context.moveTo(x, 0); context.lineTo(x, height); context.stroke();
-    }
+    for (let x = spacing; x < width; x += spacing) riga(context, x, 0, x, height);
   }
   context.strokeStyle = '#ef9b9b';
-  context.beginPath(); context.moveTo(width * 0.08, 0); context.lineTo(width * 0.08, height); context.stroke();
+  riga(context, width * 0.08, 0, width * 0.08, height);
 }
 
 export class NotebookManager {
@@ -68,7 +113,7 @@ export class NotebookManager {
       const title = document.querySelector('#new-notebook-title').value.trim();
       const subject = document.querySelector('#new-notebook-subject').value.trim();
       const type = new FormData(event.currentTarget).get('paper-type');
-      if (!title || !subject) return;
+      if (!title || !subject || !TIPI_FOGLIO[type]) return;
       const notebook = { id: createId('quaderno'), titolo: title, materia: subject, tipo: type, data: Date.now(), pagine: 1 };
       const page = { id: createId('pagina'), idQuaderno: notebook.id, numero: 1, elementi: [], data: Date.now() };
       await DB.put('quaderni', notebook);
@@ -157,10 +202,11 @@ export class NotebookManager {
   // visibile, quindi si continua a scrivere nel punto giusto anche ingranditi.
   gestoDueDita(fase, touches) {
     const box = document.querySelector('#notebook-pages');
+    const dita = ditaAppoggiate(touches);
     if (fase === 'start') {
       this.swipe.inizio(touches);
-      if (touches.size < 2) return;
-      const [primo, secondo] = [...touches.values()];
+      if (dita.length < 2) return;
+      const [primo, secondo] = dita;
       const rect = box.getBoundingClientRect();
       this.pinch = {
         distanza: Math.hypot(primo.x - secondo.x, primo.y - secondo.y) || 1,
@@ -176,8 +222,8 @@ export class NotebookManager {
       return;
     }
     if (fase === 'move') this.swipe.muovi(touches);
-    if (fase === 'move' && this.pinch && touches.size >= 2) {
-      const [primo, secondo] = [...touches.values()];
+    if (fase === 'move' && this.pinch && dita.length >= 2) {
+      const [primo, secondo] = dita;
       const distanza = Math.hypot(primo.x - secondo.x, primo.y - secondo.y) || 1;
       const zoom = Math.max(1, Math.min(4, this.pinch.zoom * distanza / this.pinch.distanza));
       const mediaX = (primo.x + secondo.x) / 2;
@@ -242,12 +288,11 @@ export class NotebookManager {
 
   // Prepara un foglio (sfondo giusto, contenuto, dito che scrive, misura)
   mostraFoglio(wrap, canvas, surface, page) {
-    wrap.classList.toggle('lined', this.current.tipo === 'righe');
-    wrap.classList.toggle('squared', this.current.tipo === 'quadretti');
+    for (const classe of Object.values(TIPI_FOGLIO)) wrap.classList.remove(classe);
+    wrap.classList.add(TIPI_FOGLIO[this.current.tipo] || TIPI_FOGLIO.righe);
     surface.setElements(page ? (page.elementi || []) : []);
     // Nel quaderno si SCRIVE: il dito disegna sempre, senza bisogno della Pencil.
     surface.setDrawWithFinger(true);
-    canvas.classList.toggle('finger-draw', true);
     requestAnimationFrame(() => surface.resize());
   }
 

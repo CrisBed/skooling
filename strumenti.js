@@ -241,7 +241,64 @@ export function drawElement(context, element, width, height, selected = false) {
     context.stroke();
     if (element.tipo === 'freccia') drawArrowHead(context, { x: x1, y: y1 }, { x: x2, y: y2 }, 12 + element.spessore);
   }
+  // Un segno o una figura scelti si vedono con un riquadro tratteggiato: il
+  // testo ha gia' il suo, disegnato insieme alla casella.
+  if (selected && element.tipo !== 'testo') {
+    const bordi = riquadroElemento(element);
+    if (bordi) {
+      context.globalAlpha = 1;
+      context.strokeStyle = '#2457d6';
+      context.lineWidth = 2;
+      context.setLineDash([6, 4]);
+      const margine = 0.012;
+      context.strokeRect(
+        (bordi.sinistra - margine) * width, (bordi.alto - margine) * height,
+        (bordi.destra - bordi.sinistra + margine * 2) * width,
+        (bordi.basso - bordi.alto + margine * 2) * height,
+      );
+      context.setLineDash([]);
+    }
+  }
   context.restore();
+}
+
+// I quattro lati di un elemento, in coordinate del foglio (da 0 a 1).
+export function riquadroElemento(element) {
+  if (element.tipo === 'testo') {
+    return { sinistra: element.x, destra: element.x + element.w, alto: element.y, basso: element.y + element.h };
+  }
+  const punti = element.punti ?? (element.x1 === undefined ? [] : [
+    { x: element.x1, y: element.y1 }, { x: element.x2, y: element.y2 },
+  ]);
+  if (!punti.length) return null;
+  return {
+    sinistra: Math.min(...punti.map((punto) => punto.x)),
+    destra: Math.max(...punti.map((punto) => punto.x)),
+    alto: Math.min(...punti.map((punto) => punto.y)),
+    basso: Math.max(...punti.map((punto) => punto.y)),
+  };
+}
+
+// Sposta un elemento gia' disegnato. Lo spostamento si calcola sempre dalla
+// posizione di partenza, cosi' il segno non scivola via accumulando errori, e
+// si accorcia quanto serve perche' l'elemento non esca dal foglio.
+export function spostaElemento(element, originale, dx, dy) {
+  const bordi = riquadroElemento(originale);
+  if (!bordi) return element;
+  const passoX = Math.max(-bordi.sinistra, Math.min(1 - bordi.destra, dx));
+  const passoY = Math.max(-bordi.alto, Math.min(1 - bordi.basso, dy));
+  if (originale.tipo === 'testo') {
+    element.x = originale.x + passoX;
+    element.y = originale.y + passoY;
+  } else if (originale.punti) {
+    element.punti = originale.punti.map((punto) => ({ ...punto, x: punto.x + passoX, y: punto.y + passoY }));
+  } else {
+    element.x1 = originale.x1 + passoX;
+    element.y1 = originale.y1 + passoY;
+    element.x2 = originale.x2 + passoX;
+    element.y2 = originale.y2 + passoY;
+  }
+  return element;
 }
 
 // Stato del gesto a due dita, condiviso da più fogli affiancati: le due dita
@@ -249,6 +306,13 @@ export function drawElement(context, element, width, height, selected = false) {
 // come un solo gesto. `touches` tiene i tocchi vivi in coordinate schermo.
 export function creaGestoCondiviso() {
   return { touches: new Map(), attivo: false, fogli: [] };
+}
+
+// Fra i puntatori del gesto contano come dita solo quelle vere: in sola lettura
+// anche la penna diventa un gesto, ma due punte non devono valere per un
+// ingrandimento a due dita.
+export function ditaAppoggiate(touches) {
+  return [...touches.values()].filter((punto) => (punto.tipo ?? 'touch') === 'touch');
 }
 
 // Sfioramento orizzontale per cambiare pagina. Guarda le dita appoggiate sul
@@ -478,10 +542,13 @@ export class DrawingSurface {
 
   pointFromEvent(event) { return normalizePoint(event, this.canvas.getBoundingClientRect()); }
 
-  // Un gesto è in corso quando il dito non scrive (allora scorre e ingrandisce)
-  // oppure quando sono arrivate due dita insieme.
+  // Due dita sono sempre un gesto. Un puntatore solo è un gesto quando con
+  // quello non si disegna: il dito quando non deve scrivere, e qualunque punta
+  // in sola lettura, dove si sfoglia e si scorre soltanto. Se invece con quella
+  // punta si disegna, il gesto non la tocca: la penna deve scrivere sempre,
+  // anche a foglio ingrandito.
   inGesto(event) {
-    return event.pointerType === 'touch' && (this.gesto.attivo || !this.drawWithFinger);
+    return this.gesto.attivo || !this.canDraw(event);
   }
 
   // Il secondo dito trasforma il tocco in gesto: il segno appena cominciato
@@ -502,10 +569,16 @@ export class DrawingSurface {
   }
 
   pointerDown(event) {
-    if (event.pointerType === 'touch') this.gesto.touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    // Nella mappa del gesto entrano sempre le dita, perché il secondo dito deve
+    // poter fermare un tratto e far partire l'ingrandimento, e ci entrano le
+    // punte con cui in questo momento non si disegna, per esempio la penna in
+    // sola lettura, che così sfoglia.
+    if (event.pointerType === 'touch' || !this.canDraw(event)) {
+      this.gesto.touches.set(event.pointerId, { x: event.clientX, y: event.clientY, tipo: event.pointerType });
+    }
     this.pointers.set(event.pointerId, this.pointFromEvent(event));
     if (this.textEditor) { this.textEditor.blur(); return; } // il tocco conferma/chiude la casella aperta
-    if (event.pointerType === 'touch' && this.gesto.touches.size >= 2 && !this.gesto.attivo) {
+    if (event.pointerType === 'touch' && ditaAppoggiate(this.gesto.touches).length >= 2 && !this.gesto.attivo) {
       this.gesto.attivo = true;
       for (const foglio of this.gesto.fogli) foglio.annullaTrattoInCorso();
     }
@@ -520,6 +593,17 @@ export class DrawingSurface {
     // interrompere il tratto: si prosegue senza.
     try { this.canvas.setPointerCapture?.(event.pointerId); } catch { /* puntatore già chiuso */ }
     const point = this.pointFromEvent(event);
+    if (this.tool === 'sposta') {
+      // Si prende l'elemento più in alto sotto il dito e lo si porta altrove.
+      // Misura e contenuto non cambiano: cambia solo dove sta.
+      const scelto = [...this.elements].reverse().find((item) => hitTestElement(item, point, 0.03));
+      this.selectedId = scelto ? scelto.id : null;
+      this.active = scelto
+        ? { kind: 'move-element', id: scelto.id, start: point, original: clone(scelto), moved: false }
+        : null;
+      this.render();
+      return;
+    }
     if (this.tool === 'gomma') {
       this.active = { kind: 'erase', last: point, changed: this.eraseAt(point) };
       this.render();
@@ -561,8 +645,8 @@ export class DrawingSurface {
 
   pointerMove(event) {
     const point = this.pointFromEvent(event);
-    if (event.pointerType === 'touch' && this.gesto.touches.has(event.pointerId)) {
-      this.gesto.touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (this.gesto.touches.has(event.pointerId)) {
+      this.gesto.touches.set(event.pointerId, { x: event.clientX, y: event.clientY, tipo: event.pointerType });
     }
     this.pointers.set(event.pointerId, point);
     if (this.inGesto(event)) {
@@ -579,7 +663,10 @@ export class DrawingSurface {
       if (!element) return;
       const dx = point.x - this.active.start.x;
       const dy = point.y - this.active.start.y;
-      if (this.active.kind === 'move-text') {
+      if (this.active.kind === 'move-element') {
+        spostaElemento(element, this.active.original, dx, dy);
+        if (Math.abs(dx) > 0.008 || Math.abs(dy) > 0.008) this.active.moved = true;
+      } else if (this.active.kind === 'move-text') {
         element.x = Math.max(0, Math.min(1 - element.w, this.active.original.x + dx));
         element.y = Math.max(0, Math.min(1 - element.h, this.active.original.y + dy));
         if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) this.active.moved = true;
@@ -600,7 +687,7 @@ export class DrawingSurface {
   pointerUp(event) {
     const gesto = this.inGesto(event);
     if (gesto) this.onTouchGesture('end', event, this.gesto.touches);
-    if (event.pointerType === 'touch') this.gesto.touches.delete(event.pointerId);
+    this.gesto.touches.delete(event.pointerId);
     this.pointers.delete(event.pointerId);
     // Finché resta a terra un dito del gesto non si torna a scrivere.
     if (this.gesto.attivo && this.gesto.touches.size === 0) this.gesto.attivo = false;
@@ -611,6 +698,13 @@ export class DrawingSurface {
       this.active = null;
       if (changed) this.commit();
       else this.render();
+      return;
+    }
+    if (this.active.kind === 'move-element') {
+      const spostato = this.active.moved;
+      this.active = null;
+      // Un tocco senza trascinamento sceglie soltanto: non c'è nulla da salvare.
+      if (spostato) this.commit(); else this.render();
       return;
     }
     if (this.active.kind === 'move-text' && !this.active.moved) {

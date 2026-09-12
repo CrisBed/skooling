@@ -16,7 +16,7 @@ test('la shell contiene navigazione, import PDF e viste principali', async () =>
 });
 
 test('i moduli applicativi usano soltanto import locali', async () => {
-  const names = ['app.js', 'db.js', 'pdf-viewer.js', 'quaderni.js', 'strumenti.js'];
+  const names = ['app.js', 'db.js', 'pdf-viewer.js', 'quaderni.js', 'strumenti.js', 'album.js'];
   for (const name of names) {
     const source = await readFile(new URL(`../${name}`, import.meta.url), 'utf8');
     assert.doesNotMatch(source, /https?:\/\/|(?:src|href)\s*=\s*['"]\/\//i, `${name} contiene un URL remoto`);
@@ -28,7 +28,7 @@ test('i moduli applicativi usano soltanto import locali', async () => {
 
 test('il service worker include ogni risorsa statica essenziale', async () => {
   const sw = await readFile(new URL('../sw.js', import.meta.url), 'utf8');
-  const required = ['index.html', 'style.css', 'app.js', 'db.js', 'pdf-viewer.js', 'quaderni.js', 'strumenti.js', 'manifest.webmanifest', 'vendor/pdf.mjs', 'vendor/pdf.worker.mjs'];
+  const required = ['index.html', 'style.css', 'app.js', 'db.js', 'pdf-viewer.js', 'quaderni.js', 'strumenti.js', 'album.js', 'manifest.webmanifest', 'vendor/pdf.mjs', 'vendor/pdf.worker.mjs'];
   for (const file of required) assert.match(sw, new RegExp(file.replaceAll('.', '\\.')));
 });
 
@@ -73,13 +73,40 @@ test('la vista a schermo intero ha i suoi comandi in entrambi gli spazi di lavor
   assert.match(css, /\.workspace\.schermo-pieno \.fullscreen-exit/);
 });
 
-test('la superficie di lettura non lascia al browser lo zoom a due dita', async () => {
-  // Se il canvas concede pinch-zoom, Safari ingrandisce tutta l'app invece
-  // della sola pagina: barre e indicatori compresi.
+test('sul foglio i gesti non li prende il browser', async () => {
+  // Se il canvas concedesse `pan` o `pinch-zoom`, il browser si prenderebbe il
+  // trascinamento: la penna sposterebbe la pagina invece di scrivere, e il
+  // pizzico ingrandirebbe tutta l'app invece della sola pagina.
   const css = (await readFile(new URL('../style.css', import.meta.url), 'utf8')).replace(/\/\*[\s\S]*?\*\//g, '');
-  for (const regola of css.split('}')) {
-    if (!/touch-action/.test(regola)) continue;
-    if (!/\.drawing-canvas|\.page-scroll/.test(regola)) continue;
-    assert.doesNotMatch(regola, /pinch-zoom/, `questa regola lascia il pinch al browser: ${regola.trim()}`);
+  const regole = css.split('}').filter((regola) => /\.drawing-canvas/.test(regola) && /touch-action/.test(regola));
+  assert.ok(regole.length, 'manca la regola touch-action del foglio');
+  for (const regola of regole) {
+    assert.match(regola, /touch-action:\s*none/, `il foglio concede gesti al browser: ${regola.trim()}`);
   }
+});
+
+test('l\'album ha la sua sezione, il suo pulsante e il visore delle foto', async () => {
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  assert.match(html, /id="album"/);
+  assert.match(html, /data-go="album"/);
+  assert.match(html, /id="album-input"[^>]*accept="image\/\*"[^>]*capture/);
+  assert.match(html, /id="task-photo"[^>]*accept="image\/\*"[^>]*capture/, 'il compito deve poter scattare una foto');
+  assert.match(html, /id="photo-dialog"/);
+});
+
+test('i quaderni offrono tutti e cinque i tipi di foglio', async () => {
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  const css = await readFile(new URL('../style.css', import.meta.url), 'utf8');
+  const { TIPI_FOGLIO } = await import('../quaderni.js');
+  assert.deepEqual(Object.keys(TIPI_FOGLIO), ['righe', 'quadretti', 'bianco', 'pentagramma', 'millimetrato']);
+  for (const [tipo, classe] of Object.entries(TIPI_FOGLIO)) {
+    assert.match(html, new RegExp(`value="${tipo}"`), `manca la scelta ${tipo} nel dialogo`);
+    assert.match(css, new RegExp(`\\.notebook-paper\\.${classe}`), `manca il disegno del foglio ${tipo}`);
+    assert.match(css, new RegExp(`\\.paper-sample\\.${classe}`), `manca l'anteprima del foglio ${tipo}`);
+  }
+});
+
+test('lo strumento per spostare c\'è in tutti e due gli astucci', async () => {
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  assert.equal((html.match(/data-tool="sposta"/g) || []).length, 2);
 });

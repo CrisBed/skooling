@@ -4,37 +4,49 @@ import { SEGNI_MUSICALI, segnoValido, ingombroSegno, disegnaSegnoMusicale } from
 import { agganciaAlRigo, RIGO } from '../quaderni.js';
 import { riquadroElemento, hitTestElement, spostaElemento } from '../strumenti.js';
 
-// I segni si disegnano con la punta, non con un carattere: i caratteri musicali
-// di Unicode non esistono nei font del dispositivo. Questa finta tela registra
-// le chiamate, così si verifica che ogni segno disegni davvero qualcosa.
+// I segni sono i glifi veri del font di notazione che l'app si porta dietro.
+// Questa finta tela registra le chiamate, cosi' si verifica che ogni segno
+// scriva davvero il suo glifo (o disegni l'archetto, per la legatura).
 function telaFinta() {
   const fatte = [];
   const nulla = () => {};
   return {
     fatte,
     save: nulla, restore: nulla, translate: nulla, rotate: nulla,
-    beginPath: nulla, closePath: nulla,
-    moveTo: nulla, lineTo: () => fatte.push('linea'),
+    beginPath: nulla, closePath: nulla, moveTo: nulla,
+    lineTo: () => fatte.push('linea'),
     bezierCurveTo: () => fatte.push('curva'),
     ellipse: () => fatte.push('ovale'), arc: () => fatte.push('arco'),
     rect: nulla, fillRect: () => fatte.push('rettangolo'),
     stroke: () => fatte.push('tratto'), fill: () => fatte.push('pieno'),
+    fillText: (t) => fatte.push('glifo:' + [...t].map((c) => c.codePointAt(0).toString(16).toUpperCase()).join()),
     set lineWidth(v) {}, set strokeStyle(v) {}, set fillStyle(v) {},
-    set lineCap(v) {}, set lineJoin(v) {},
+    set lineCap(v) {}, set lineJoin(v) {}, set font(v) { fatte.push('font:' + v); },
+    set textAlign(v) {}, set textBaseline(v) {},
   };
 }
 
-test('ogni segno musicale dell’elenco si disegna davvero', () => {
-  assert.ok(SEGNI_MUSICALI.length >= 12, 'servono almeno note, chiavi, pause e alterazioni');
+test('ogni segno musicale scrive il glifo del font di notazione', () => {
   for (const segno of SEGNI_MUSICALI) {
     const tela = telaFinta();
     disegnaSegnoMusicale(tela, segno.chiave, 100, 100, 16, '#000');
     assert.ok(tela.fatte.length > 0, `il segno ${segno.chiave} non disegna niente`);
+    if (segno.chiave === 'legatura') {
+      assert.ok(tela.fatte.includes('curva'), 'la legatura e\' un archetto disegnato, nei font non c\'e\'');
+      continue;
+    }
+    const glifo = tela.fatte.find((v) => v.startsWith('glifo:'));
+    assert.ok(glifo, `il segno ${segno.chiave} non scrive nessun glifo`);
+    // i glifi di notazione stanno nell'area a uso privato di Unicode
+    const codice = parseInt(glifo.slice(6), 16);
+    assert.ok(codice >= 0xE000 && codice <= 0xF8FF, `${segno.chiave} non usa un glifo di notazione (${glifo})`);
+    assert.ok(tela.fatte.some((v) => v.startsWith('font:') && v.includes('SkoolingMusica')), `${segno.chiave} non usa il font di notazione`);
   }
 });
 
 test('un segno sconosciuto non viene accettato e non disegna niente', () => {
   assert.equal(segnoValido('semiminima'), true);
+  assert.equal(segnoValido('legatura'), true);
   assert.equal(segnoValido('trombone'), false);
   const tela = telaFinta();
   disegnaSegnoMusicale(tela, 'trombone', 100, 100, 16, '#000');
@@ -72,10 +84,16 @@ test('un simbolo si può riprendere toccandolo e si sposta come gli altri segni'
   assert.equal(spostata.unita, nota.unita, 'la misura non cambia');
 });
 
-test('l’ingombro dichiarato è coerente con il segno', () => {
+test('l’ingombro viene dalle misure vere del font', () => {
+  // Misurati con fontTools sul font Bravura, non stimati a occhio.
   const nota = ingombroSegno('semiminima');
   assert.ok(nota.sopra > nota.sotto, 'la semiminima ha il gambo verso l’alto');
+  assert.ok(Math.abs(nota.sopra - 3.5) < 0.01, 'il gambo e’ alto tre spazi e mezzo, come nel font');
   const semibreve = ingombroSegno('semibreve');
   assert.ok(semibreve.sopra < nota.sopra, 'la semibreve non ha gambo');
+  const pausaSemibreve = ingombroSegno('pausa-semibreve');
+  const pausaMinima = ingombroSegno('pausa-minima');
+  assert.ok(pausaSemibreve.sotto > pausaSemibreve.sopra, 'la pausa di semibreve sta appesa sotto la riga');
+  assert.ok(pausaMinima.sopra > pausaMinima.sotto, 'quella di minima sta appoggiata sopra');
   assert.deepEqual(ingombroSegno('sconosciuto'), { sinistra: 1, destra: 1, sopra: 1, sotto: 1 });
 });

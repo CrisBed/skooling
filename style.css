@@ -1,3 +1,11 @@
+/* Il font di notazione musicale: solo i sedici glifi che servono, presi da
+   Bravura (SMuFL, licenza SIL Open Font, copia in vendor/BRAVURA-LICENSE.txt). */
+@font-face {
+  font-family: "SkoolingMusica";
+  src: url("./vendor/SkoolingMusica.woff2") format("woff2");
+  font-display: block;
+}
+
 :root {
   --ink: #18213b;
   --muted: #65708a;

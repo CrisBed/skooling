@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizePoint, hitTestElement, HistoryStack, makePdfFromJpegs, drawElement, DrawingSurface, creaGestoCondiviso, creaRilevatoreSwipe, spostaElemento, riquadroElemento, ditaAppoggiate, disegnaElementi, INGROSSO_EVIDENZIATORE, TINTA_EVIDENZIATORE, risoluzioneAmmessa, PIXEL_MASSIMI } from '../strumenti.js';
+import { normalizePoint, hitTestElement, HistoryStack, makePdfFromJpegs, drawElement, DrawingSurface, creaGestoCondiviso, creaRilevatoreSwipe, spostaElemento, riquadroElemento, ditaAppoggiate, disegnaElementi, INGROSSO_EVIDENZIATORE, TINTA_EVIDENZIATORE, risoluzioneAmmessa, PIXEL_MASSIMI, maniglieElemento, maniglieSotto, bordiTrascinando, ridimensionaElemento } from '../strumenti.js';
 
 function makeCanvas() {
   const context = {
@@ -525,4 +525,81 @@ test('una tela grande viene tenuta sotto il tetto di pixel', () => {
 
 test('la risoluzione non scende mai sotto la metà, per non sgranare l’inchiostro', () => {
   assert.equal(risoluzioneAmmessa(20000, 20000, 2), 0.5);
+});
+
+// ---- Ridimensionare quel che è già sul foglio -----------------------------
+
+const RETTANGOLO = { id: 'r1', tipo: 'rettangolo', x1: 0.2, y1: 0.2, x2: 0.6, y2: 0.5 };
+
+test('un elemento scelto mostra quattro maniglie, una per angolo', () => {
+  const maniglie = maniglieElemento(RETTANGOLO);
+  assert.equal(maniglie.length, 4);
+  assert.deepEqual(maniglie.map((m) => m.angolo).sort(),
+    ['alto-destra', 'alto-sinistra', 'basso-destra', 'basso-sinistra']);
+  const bassoDestra = maniglie.find((m) => m.angolo === 'basso-destra');
+  assert.deepEqual([bassoDestra.x, bassoDestra.y], [0.6, 0.5]);
+});
+
+test('si riconosce la maniglia che si sta toccando, non quelle lontane', () => {
+  assert.equal(maniglieSotto(RETTANGOLO, { x: 0.605, y: 0.505 })?.angolo, 'basso-destra');
+  assert.equal(maniglieSotto(RETTANGOLO, { x: 0.2, y: 0.2 })?.angolo, 'alto-sinistra');
+  assert.equal(maniglieSotto(RETTANGOLO, { x: 0.4, y: 0.35 }), null, 'in mezzo non c’è nessuna maniglia');
+});
+
+test('tirando una maniglia l’angolo opposto resta fermo', () => {
+  const bordi = { sinistra: 0.2, destra: 0.6, alto: 0.2, basso: 0.5 };
+  const nuovi = bordiTrascinando(bordi, 'basso-destra', { x: 0.8, y: 0.7 });
+  assert.deepEqual([nuovi.sinistra, nuovi.alto], [0.2, 0.2], 'l’angolo in alto a sinistra non si muove');
+  assert.deepEqual([nuovi.destra, nuovi.basso], [0.8, 0.7]);
+  const daSopra = bordiTrascinando(bordi, 'alto-sinistra', { x: 0.1, y: 0.05 });
+  assert.deepEqual([daSopra.destra, daSopra.basso], [0.6, 0.5], 'tirando dall’altro angolo resta fermo quello in basso a destra');
+});
+
+test('un elemento non si può rimpicciolire fino a sparire né uscire dal foglio', () => {
+  const bordi = { sinistra: 0.2, destra: 0.6, alto: 0.2, basso: 0.5 };
+  const schiacciato = bordiTrascinando(bordi, 'basso-destra', { x: 0.2, y: 0.2 });
+  assert.ok(schiacciato.destra - schiacciato.sinistra >= 0.029, 'resta una larghezza minima');
+  assert.ok(schiacciato.basso - schiacciato.alto >= 0.029, 'e una altezza minima');
+  const fuori = bordiTrascinando(bordi, 'basso-destra', { x: 1.8, y: 1.9 });
+  assert.deepEqual([fuori.destra, fuori.basso], [1, 1], 'non si esce dal foglio');
+});
+
+test('ridimensionando una figura le proporzioni seguono i bordi nuovi', () => {
+  const nuovo = ridimensionaElemento({ ...RETTANGOLO }, RETTANGOLO,
+    { sinistra: 0.2, destra: 1.0, alto: 0.2, basso: 0.8 });
+  assert.equal(+(nuovo.x2 - nuovo.x1).toFixed(3), 0.8, 'larghezza raddoppiata');
+  assert.equal(+(nuovo.y2 - nuovo.y1).toFixed(3), 0.6, 'altezza raddoppiata');
+  assert.deepEqual([+nuovo.x1.toFixed(3), +nuovo.y1.toFixed(3)], [0.2, 0.2], 'l’angolo fermo è rimasto fermo');
+});
+
+test('ridimensionando un tratto a mano libera ogni punto segue in proporzione', () => {
+  const tratto = { id: 't', tipo: 'penna', punti: [{ x: 0.2, y: 0.2 }, { x: 0.4, y: 0.6 }, { x: 0.6, y: 0.4 }] };
+  const nuovo = ridimensionaElemento(structuredClone(tratto), tratto,
+    { sinistra: 0.2, destra: 1.0, alto: 0.2, basso: 0.6 });
+  // il punto di mezzo stava a metà larghezza: ci resta
+  assert.equal(+nuovo.punti[1].x.toFixed(3), 0.6);
+  assert.equal(+nuovo.punti[0].x.toFixed(3), 0.2, 'il primo punto è sull’angolo fermo');
+  assert.equal(+nuovo.punti[2].x.toFixed(3), 1.0);
+});
+
+test('una casella di testo cambia misura, un simbolo musicale cresce uguale nei due versi', () => {
+  const casella = { id: 'c', tipo: 'testo', x: 0.2, y: 0.2, w: 0.3, h: 0.1, testo: 'ciao' };
+  const grande = ridimensionaElemento({ ...casella }, casella, { sinistra: 0.2, destra: 0.8, alto: 0.2, basso: 0.4 });
+  assert.equal(+grande.w.toFixed(3), 0.6, 'la casella raddoppia in larghezza');
+  assert.equal(grande.testo, 'ciao', 'il contenuto non cambia');
+
+  const nota = { id: 'n', tipo: 'simbolo', segno: 'semiminima', x: 0.5, y: 0.5, unita: 0.016 };
+  const bordi = { sinistra: 0.4, destra: 0.6, alto: 0.3, basso: 0.7 };
+  const cresciuta = ridimensionaElemento({ ...nota }, nota,
+    { sinistra: bordi.sinistra, destra: bordi.sinistra + (bordi.destra - bordi.sinistra) * 2,
+      alto: bordi.alto, basso: bordi.alto + (bordi.basso - bordi.alto) * 2 });
+  assert.ok(cresciuta.unita > nota.unita, 'il simbolo diventa più grande');
+  assert.equal(cresciuta.segno, 'semiminima', 'e resta lo stesso segno');
+});
+
+test('una sottolineatura piatta si sposta senza schiacciarsi', () => {
+  const riga = { id: 'l', tipo: 'sottolineatura', x1: 0.2, y1: 0.5, x2: 0.6, y2: 0.5 };
+  const nuovo = ridimensionaElemento({ ...riga }, riga, { sinistra: 0.2, destra: 1.0, alto: 0.3, basso: 0.3 });
+  assert.equal(+(nuovo.x2 - nuovo.x1).toFixed(3), 0.8, 'si allunga');
+  assert.equal(nuovo.y1, nuovo.y2, 'e resta dritta');
 });

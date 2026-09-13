@@ -1,6 +1,6 @@
 // Gestione dei quaderni e delle loro pagine vettoriali.
 import { DB, createId } from './db.js';
-import { SEGNI_MUSICALI, disegnaSegnoMusicale } from './musica.js';
+import { SEGNI_MUSICALI, disegnaSegnoMusicale, fontePronta } from './musica.js';
 import { DrawingSurface, SurfaceGroup, attachToolbox, disegnaElementi, canvasToJpeg, makePdfFromJpegs, downloadBlob, creaGestoCondiviso, creaRilevatoreSwipe, ditaAppoggiate } from './strumenti.js';
 
 function safeFilename(value) {
@@ -108,6 +108,7 @@ export class NotebookManager {
     this.pinch = null;
     // Sfioramento orizzontale: cambia pagina senza toccare le frecce.
     this.swipe = creaRilevatoreSwipe();
+    this.ultimoPunto = null;
     this.schermoPieno = false;
     this.astuccioAperto = false;
     // Un solo gesto per tutti e due i fogli: le due dita possono cadere su fogli diversi.
@@ -250,6 +251,9 @@ export class NotebookManager {
     this.azzeraZoom();
     this.aggiornaTavolozzaMusicale();
     this.showPage();
+    // Finché il font di notazione non è caricato i simboli non si disegnano:
+    // appena è pronto si ripassa la pagina.
+    if (this.current.tipo === 'pentagramma') fontePronta().then(() => { if (this.current) this.showPage(); });
   }
 
   close() {
@@ -277,6 +281,7 @@ export class NotebookManager {
     const dita = ditaAppoggiate(touches);
     if (fase === 'start') {
       this.swipe.inizio(touches);
+      this.ultimoPunto = null;
       if (dita.length < 2) return;
       const [primo, secondo] = dita;
       const rect = box.getBoundingClientRect();
@@ -293,7 +298,12 @@ export class NotebookManager {
       };
       return;
     }
-    if (fase === 'move') this.swipe.muovi(touches);
+    if (fase === 'move') {
+      this.swipe.muovi(touches);
+      // Un dito solo che non scrive scorre il foglio, come nel libro. Serve in
+      // sola lettura: al foglio i gesti li governa l'app, non il browser.
+      if (dita.length === 1 && !this.pinch) this.scorriFoglio(touches);
+    }
     if (fase === 'move' && this.pinch && dita.length >= 2) {
       const [primo, secondo] = dita;
       const distanza = Math.hypot(primo.x - secondo.x, primo.y - secondo.y) || 1;
@@ -308,6 +318,7 @@ export class NotebookManager {
     }
     if (fase !== 'end') return;
     this.pinch = null;
+    this.ultimoPunto = null;
     // A foglio ingrandito le dita servono a spostare e a ridurre: si cambia
     // pagina soltanto quando il foglio è alla sua misura naturale.
     const direzione = this.zoom <= 1.01 ? this.swipe.fine(touches) : (this.swipe.annulla(), 0);
@@ -333,6 +344,20 @@ export class NotebookManager {
       astuccio.hidden = false;
       interruttore.classList.add('active');
     }
+  }
+
+  // Porta in giro il foglio col dito. Lo fa il codice perché al foglio i gesti
+  // del browser sono vietati: senza, la penna scriverebbe mentre la pagina
+  // scappa.
+  scorriFoglio(touches) {
+    const riquadro = document.querySelector('#editor-quaderno .page-scroll');
+    const [punto] = [...touches.values()];
+    if (!riquadro || !punto) return;
+    if (this.ultimoPunto) {
+      riquadro.scrollLeft -= punto.x - this.ultimoPunto.x;
+      riquadro.scrollTop -= punto.y - this.ultimoPunto.y;
+    }
+    this.ultimoPunto = { x: punto.x, y: punto.y };
   }
 
   applicaZoom(zoom, panX, panY) {

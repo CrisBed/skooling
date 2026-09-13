@@ -28,7 +28,7 @@ test('i moduli applicativi usano soltanto import locali', async () => {
 
 test('il service worker include ogni risorsa statica essenziale', async () => {
   const sw = await readFile(new URL('../sw.js', import.meta.url), 'utf8');
-  const required = ['index.html', 'style.css', 'app.js', 'db.js', 'pdf-viewer.js', 'quaderni.js', 'strumenti.js', 'album.js', 'ricerca.js', 'musica.js', 'manifest.webmanifest', 'vendor/pdf.mjs', 'vendor/pdf.worker.mjs'];
+  const required = ['index.html', 'style.css', 'app.js', 'db.js', 'pdf-viewer.js', 'quaderni.js', 'strumenti.js', 'album.js', 'ricerca.js', 'musica.js', 'manifest.webmanifest', 'vendor/SkoolingMusica.woff2', 'vendor/pdf.mjs', 'vendor/pdf.worker.mjs'];
   for (const file of required) assert.match(sw, new RegExp(file.replaceAll('.', '\\.')));
 });
 
@@ -137,12 +137,20 @@ test('il lettore libera davvero il documento quando si chiude', async () => {
   assert.doesNotMatch(documento, /\n  (async )?destroy\(/, 'se una versione nuova di PDF.js aggiunge destroy al documento, questa regola va rivista');
 });
 
-test('i simboli musicali non dipendono dai caratteri di sistema', async () => {
-  // Provati sul dispositivo: i caratteri musicali di Unicode disegnano tutti lo
-  // stesso rettangolo vuoto. I segni vanno disegnati con la punta.
+test('i simboli musicali usano il font che l’app si porta dietro', async () => {
+  // I caratteri musicali dei font di sistema non esistono: provati sul
+  // dispositivo, disegnano tutti lo stesso rettangolo vuoto. Il font di
+  // notazione quindi viaggia con l’app, e deve funzionare anche offline.
   const musica = await readFile(new URL('../musica.js', import.meta.url), 'utf8');
-  assert.doesNotMatch(musica, /fillText|measureText/, 'i segni non si scrivono come testo');
-  assert.match(musica, /bezierCurveTo|ellipse/, 'si disegnano con tracciati');
+  assert.match(musica, /SkoolingMusica/, 'i segni si scrivono col font dell’app');
+  const css = await readFile(new URL('../style.css', import.meta.url), 'utf8');
+  assert.match(css, /@font-face[\s\S]{0,200}SkoolingMusica\.woff2/, 'il font e’ dichiarato nel CSS');
+  const sw = await readFile(new URL('../sw.js', import.meta.url), 'utf8');
+  assert.match(sw, /SkoolingMusica\.woff2/, 'e viene tenuto in cache per l’uso offline');
+  const licenza = await readFile(new URL('../vendor/BRAVURA-LICENSE.txt', import.meta.url), 'utf8');
+  assert.match(licenza, /SIL OPEN FONT LICENSE/, 'la licenza del font viaggia con lui');
+  const licenze = await readFile(new URL('../LICENZE.md', import.meta.url), 'utf8');
+  assert.match(licenze, /Bravura/, 'ed e’ citata fra le licenze');
 });
 
 test('chiudere un libro spegne lo stato prima di mettersi ad aspettare', async () => {

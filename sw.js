@@ -1,7 +1,7 @@
 // Incrementa questo nome dopo ogni modifica ai file dell'app.
 // Lo fa da solo pubblica.sh: il nome nuovo è ciò che porta la versione nuova
 // sul dispositivo di Gabriel, senza che lui debba reinstallare nulla.
-const CACHE_NAME = 'skooling-v17';
+const CACHE_NAME = 'skooling-v18';
 const STATIC_FILES = [
   './',
   './index.html',
@@ -18,6 +18,7 @@ const STATIC_FILES = [
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  './vendor/SkoolingMusica.woff2',
   './vendor/pdf.mjs',
   './vendor/pdf.worker.mjs'
 ];

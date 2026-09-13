@@ -308,6 +308,16 @@ export function disegnaRiquadroSelezione(context, element, width, height) {
     (bordi.destra - bordi.sinistra + margine * 2) * width,
     (bordi.basso - bordi.alto + margine * 2) * height,
   );
+  context.setLineDash([]);
+  // Le quattro maniglie: si tirano per ingrandire o rimpicciolire.
+  const lato = LATO_MANIGLIA * Math.min(width, height);
+  context.fillStyle = '#ffffff';
+  for (const maniglia of maniglieElemento(element)) {
+    const x = maniglia.x * width - lato / 2;
+    const y = maniglia.y * height - lato / 2;
+    context.fillRect(x, y, lato, lato);
+    context.strokeRect(x, y, lato, lato);
+  }
   context.restore();
 }
 
@@ -376,6 +386,81 @@ export function riquadroElemento(element) {
     alto: Math.min(...punti.map((punto) => punto.y)),
     basso: Math.max(...punti.map((punto) => punto.y)),
   };
+}
+
+// Le quattro maniglie agli angoli di un elemento scelto, in coordinate del
+// foglio. Si prendono per ingrandirlo o rimpicciolirlo.
+export const LATO_MANIGLIA = 0.016;
+export function maniglieElemento(element) {
+  const bordi = riquadroElemento(element);
+  if (!bordi) return [];
+  return [
+    { angolo: 'alto-sinistra', x: bordi.sinistra, y: bordi.alto },
+    { angolo: 'alto-destra', x: bordi.destra, y: bordi.alto },
+    { angolo: 'basso-sinistra', x: bordi.sinistra, y: bordi.basso },
+    { angolo: 'basso-destra', x: bordi.destra, y: bordi.basso },
+  ];
+}
+
+// Quale maniglia si sta toccando, se se ne tocca una.
+export function maniglieSotto(element, punto, tolleranza = 0.035) {
+  for (const maniglia of maniglieElemento(element)) {
+    if (Math.abs(punto.x - maniglia.x) <= tolleranza && Math.abs(punto.y - maniglia.y) <= tolleranza) return maniglia;
+  }
+  return null;
+}
+
+// I nuovi bordi dopo aver trascinato una maniglia: l'angolo opposto resta
+// fermo, come quando si tira l'angolo di un foglio.
+export function bordiTrascinando(bordi, angolo, punto, minimo = 0.03) {
+  const nuovi = { ...bordi };
+  if (angolo.includes('sinistra')) nuovi.sinistra = Math.min(punto.x, bordi.destra - minimo);
+  else nuovi.destra = Math.max(punto.x, bordi.sinistra + minimo);
+  if (angolo.includes('alto')) nuovi.alto = Math.min(punto.y, bordi.basso - minimo);
+  else nuovi.basso = Math.max(punto.y, bordi.alto + minimo);
+  // niente esce dal foglio
+  nuovi.sinistra = Math.max(0, nuovi.sinistra);
+  nuovi.alto = Math.max(0, nuovi.alto);
+  nuovi.destra = Math.min(1, nuovi.destra);
+  nuovi.basso = Math.min(1, nuovi.basso);
+  return nuovi;
+}
+
+// Ridisegna un elemento dentro bordi nuovi. Ogni punto si sposta in proporzione,
+// cosi' la forma resta quella: e' l'unico modo perche' funzioni allo stesso modo
+// su un tratto a mano libera, su una figura, su una casella di testo e su un
+// simbolo musicale.
+export function ridimensionaElemento(element, originale, bordiNuovi) {
+  const vecchi = riquadroElemento(originale);
+  if (!vecchi) return element;
+  const larghezzaVecchia = vecchi.destra - vecchi.sinistra;
+  const altezzaVecchia = vecchi.basso - vecchi.alto;
+  // Un segno piatto (una sottolineatura, una riga orizzontale) non ha altezza da
+  // scalare: si sposta e basta lungo quell'asse.
+  const fattoreX = larghezzaVecchia > 0.001 ? (bordiNuovi.destra - bordiNuovi.sinistra) / larghezzaVecchia : 1;
+  const fattoreY = altezzaVecchia > 0.001 ? (bordiNuovi.basso - bordiNuovi.alto) / altezzaVecchia : 1;
+  const perX = (x) => bordiNuovi.sinistra + (x - vecchi.sinistra) * fattoreX;
+  const perY = (y) => bordiNuovi.alto + (y - vecchi.alto) * fattoreY;
+
+  if (originale.tipo === 'testo') {
+    element.x = perX(originale.x);
+    element.y = perY(originale.y);
+    element.w = Math.max(0.05, originale.w * fattoreX);
+    element.h = Math.max(0.03, originale.h * fattoreY);
+  } else if (originale.tipo === 'simbolo') {
+    element.x = perX(originale.x);
+    element.y = perY(originale.y);
+    // un simbolo resta sé stesso: cresce in modo uguale nei due versi
+    element.unita = Math.max(0.004, (originale.unita || 0.016) * ((fattoreX + fattoreY) / 2));
+  } else if (originale.punti) {
+    element.punti = originale.punti.map((p) => ({ ...p, x: perX(p.x), y: perY(p.y) }));
+  } else {
+    element.x1 = perX(originale.x1);
+    element.y1 = perY(originale.y1);
+    element.x2 = perX(originale.x2);
+    element.y2 = perY(originale.y2);
+  }
+  return element;
 }
 
 // Sposta un elemento gia' disegnato. Lo spostamento si calcola sempre dalla
@@ -716,8 +801,19 @@ export class DrawingSurface {
       return;
     }
     if (this.tool === 'sposta') {
-      // Si prende l'elemento più in alto sotto il dito e lo si porta altrove.
-      // Misura e contenuto non cambiano: cambia solo dove sta.
+      // Prima si guarda se si sta tirando una maniglia di quel che è già scelto:
+      // in quel caso non si sposta, si ridimensiona.
+      const giaScelto = this.elements.find((item) => item.id === this.selectedId);
+      const maniglia = giaScelto ? maniglieSotto(giaScelto, point) : null;
+      if (maniglia) {
+        this.active = {
+          kind: 'resize-element', id: giaScelto.id, angolo: maniglia.angolo, start: point,
+          original: clone(giaScelto), bordi: riquadroElemento(giaScelto), changed: false,
+        };
+        return;
+      }
+      // Altrimenti si prende l'elemento più in alto sotto il dito e lo si porta
+      // altrove. Misura e contenuto non cambiano: cambia solo dove sta.
       const scelto = [...this.elements].reverse().find((item) => hitTestElement(item, point, 0.03));
       this.selectedId = scelto ? scelto.id : null;
       this.active = scelto
@@ -745,7 +841,8 @@ export class DrawingSurface {
         id: createId('segno'), tipo: 'testo', testo: '',
         x: Math.max(0, Math.min(0.92, point.x)),
         y: Math.max(0, Math.min(0.94, point.y)),
-        w: 0.4, h: 0.1,
+        // Una casella in cui ci sta una frase, non una parola sola.
+        w: 0.62, h: 0.18,
         colore: this.color,
         dimensioneTesto: this.textSizeFromWidth(),
         allineamento: 'left',
@@ -785,7 +882,10 @@ export class DrawingSurface {
       if (!element) return;
       const dx = point.x - this.active.start.x;
       const dy = point.y - this.active.start.y;
-      if (this.active.kind === 'move-element') {
+      if (this.active.kind === 'resize-element') {
+        ridimensionaElemento(element, this.active.original, bordiTrascinando(this.active.bordi, this.active.angolo, point));
+        this.active.changed = true;
+      } else if (this.active.kind === 'move-element') {
         spostaElemento(element, this.active.original, dx, dy);
         if (Math.abs(dx) > 0.008 || Math.abs(dy) > 0.008) this.active.moved = true;
       } else if (this.active.kind === 'move-text') {
@@ -823,6 +923,12 @@ export class DrawingSurface {
       this.active = null;
       if (changed) this.commit();
       else this.render();
+      return;
+    }
+    if (this.active.kind === 'resize-element') {
+      const cambiato = this.active.changed;
+      this.active = null;
+      if (cambiato) this.commit(); else this.render();
       return;
     }
     if (this.active.kind === 'move-element') {
@@ -865,6 +971,10 @@ export class DrawingSurface {
     editor.style.top = `${element.y * 100}%`;
     editor.style.color = element.colore;
     editor.style.fontSize = `${Math.max(12, element.dimensioneTesto * rect.height / 1000)}px`;
+    // La casella si apre già larga quanto l'elemento e alta abbastanza da
+    // invitare a scrivere una frase; poi cresce da sola col testo.
+    editor.style.width = `${Math.min(element.w, 1 - element.x) * 100}%`;
+    editor.style.minHeight = `${element.h * 100}%`;
     editor.style.maxWidth = `${Math.max(10, (1 - element.x) * 100)}%`;
     parent.appendChild(editor);
     this.textEditor = editor;
@@ -881,11 +991,23 @@ export class DrawingSurface {
       const testo = editor.textContent.replace(/ /g, ' ').replace(/\s+$/,'').trim();
       this.textEditor = null;
       this.editingId = null;
+      // La misura si prende FINCHE' la casella e' ancora sul foglio: una volta
+      // tolta, offsetWidth e offsetHeight valgono zero.
+      const foglio = this.canvas.getBoundingClientRect();
+      const misura = { larghezza: editor.offsetWidth, altezza: editor.offsetHeight };
       togliDalFoglio(editor);
       const el = this.elements.find((e) => e.id === element.id);
       if (el) {
         if (!testo) this.elements = this.elements.filter((e) => e.id !== element.id);
-        else el.testo = testo;
+        else {
+          el.testo = testo;
+          // La casella salvata prende la misura di quella in cui si è scritto:
+          // così sul foglio il testo sta come lo si è visto.
+          if (foglio.width > 0 && foglio.height > 0 && misura.altezza > 0) {
+            el.w = Math.min(1 - el.x, Math.max(el.w, misura.larghezza / foglio.width));
+            el.h = Math.min(1 - el.y, Math.max(0.05, misura.altezza / foglio.height));
+          }
+        }
       }
       this.commit();
     };

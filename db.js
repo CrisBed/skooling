@@ -1,6 +1,6 @@
 // Persistenza locale di Skooling. Nessun dato lascia il dispositivo.
 export const DB_NAME = 'skooling-db';
-export const DB_VERSION = 3;
+export const DB_VERSION = 4;
 export const STORE_NAMES = [
   'libri',
   'annotazioni',
@@ -10,6 +10,7 @@ export const STORE_NAMES = [
   'compiti',
   'impostazioni',
   'foto',
+  'letture',
 ];
 
 // L'indice del testo dei libri si ricostruisce leggendo di nuovo i PDF, quindi
@@ -40,6 +41,11 @@ const STORE_OPTIONS = {
   compiti: { keyPath: 'id' },
   impostazioni: { keyPath: 'id' },
   foto: { keyPath: 'id' },
+  // A che pagina si e' arrivati, tenuto a parte dal libro. Sta qui e non dentro
+  // il libro perche' salvare il segnaposto dentro il libro vuol dire riscrivere
+  // tutto il PDF: con un libro da 400 MB sono mezzo secondo e 400 MB di scrittura
+  // a ogni voltata di pagina.
+  letture: { keyPath: 'id' },
   indicelibri: { keyPath: 'id' },
 };
 

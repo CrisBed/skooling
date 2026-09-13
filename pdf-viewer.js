@@ -1,7 +1,7 @@
 // Lettore PDF basato sulla copia locale di PDF.js.
 import * as pdfjsLib from './vendor/pdf.mjs';
 import { DB } from './db.js';
-import { DrawingSurface, SurfaceGroup, attachToolbox, creaGestoCondiviso, creaRilevatoreSwipe, ditaAppoggiate } from './strumenti.js';
+import { DrawingSurface, SurfaceGroup, attachToolbox, creaGestoCondiviso, creaRilevatoreSwipe, ditaAppoggiate, risoluzioneAmmessa } from './strumenti.js';
 import { rettangoliDaEvidenziare } from './ricerca.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = './vendor/pdf.worker.mjs';
@@ -45,6 +45,8 @@ class Reader {
     // altrimenti ogni libro aperto lascia dietro un worker e una copia intera
     // del PDF che nessuno libera piu'.
     this.caricamento = null;
+    // Numero dell'apertura in corso: serve a far ritirare quelle sorpassate.
+    this.sessione = 0;
     this.book = null;
     this.pageNumber = 1;
     this.doppia = false;
@@ -154,8 +156,22 @@ class Reader {
   }
 
   async open(bookId, page, evidenzia = '') {
-    this.book = await DB.get('libri', bookId);
-    if (!this.book) throw new Error('Questo libro non è più nella libreria.');
+    // Ogni apertura e ogni chiusura hanno il loro numero. Se mentre questa
+    // apertura lavora ne arriva un'altra, o una chiusura, questa si ferma senza
+    // toccare più niente: lo schermo appartiene all'ultima arrivata.
+    const sessione = ++this.sessione;
+    const libro = await DB.get('libri', bookId);
+    if (sessione !== this.sessione) return;
+    if (!libro) throw new Error('Questo libro non è più nella libreria.');
+    // Il segnaposto sta a parte; i libri di prima ce l'hanno ancora dentro.
+    const lettura = await DB.get('letture', bookId);
+    if (sessione !== this.sessione) return;
+    libro.ultimaPagina = lettura?.pagina || libro.ultimaPagina || 1;
+    // Chi c'era prima se ne va, anche passando da un libro all'altro senza
+    // chiudere: il vecchio compito si chiude in sottofondo, senza far aspettare.
+    const precedente = this.staccaDocumento();
+    if (precedente) precedente.destroy().catch(() => {});
+    this.book = libro;
     this.evidenzia = String(evidenzia || '');
     this.root.hidden = false;
     document.body.classList.add('workspace-open');
@@ -163,29 +179,29 @@ class Reader {
     document.querySelector('#reader-subject').textContent = this.book.materia;
     this.loading.hidden = false;
     try {
-      // Chi c'era prima se ne va davvero, anche se si passa da un libro
-      // all'altro senza chiudere quello aperto.
-      await this.liberaDocumento();
-      const task = pdfjsLib.getDocument({ data: await this.book.blob.arrayBuffer() });
+      const task = pdfjsLib.getDocument({ data: await libro.blob.arrayBuffer() });
+      const documento = await task.promise;
+      if (sessione !== this.sessione) { await task.destroy().catch(() => {}); return; }
       this.caricamento = task;
-      this.pdf = await task.promise;
+      this.pdf = documento;
       this.pageNumber = this.allinea(Math.max(1, Math.min(Number(page || this.book.ultimaPagina || 1), this.pdf.numPages)));
       this.pageNumberInput.max = this.pdf.numPages;
       document.querySelector('#page-total').textContent = `di ${this.pdf.numPages}`;
       this.buildThumbnails();
       await this.renderPage();
     } catch (error) {
-      this.close();
+      if (sessione !== this.sessione) return; // sorpassata: non è un guasto
+      await this.close();
       throw new Error('Non riesco ad aprire questo PDF. Prova a importarlo di nuovo.');
     } finally {
-      this.loading.hidden = true;
+      if (sessione === this.sessione) this.loading.hidden = true;
     }
   }
 
-  // Lascia andare il documento aperto: ferma il disegno in corso, chiude il
-  // compito di caricamento (ed è questo che spegne il worker e libera il PDF) e
-  // smette di guardare le miniature.
-  async liberaDocumento() {
+  // Stacca il documento aperto e restituisce il compito di caricamento da
+  // chiudere. Non aspetta niente: chiudere un libro da centinaia di megabyte
+  // richiede tempo, e in quel tempo chi riapre non deve trovare le cose a metà.
+  staccaDocumento() {
     this.renderTask?.cancel?.();
     this.renderTask2?.cancel?.();
     this.renderTask = null;
@@ -195,11 +211,16 @@ class Reader {
     const task = this.caricamento;
     this.caricamento = null;
     this.pdf = null;
-    if (task) await task.destroy().catch(() => {});
+    return task;
   }
 
+  // Chiude il libro. TUTTO quello che tocca lo stato si fa PRIMA di qualsiasi
+  // attesa: se si aspettasse prima, chi nel frattempo ha già riaperto un libro
+  // se lo vedrebbe azzerare sotto le mani a chiusura finita. È esattamente
+  // quello che succedeva uscendo e rientrando di fretta da un libro pesante.
   async close() {
-    await this.liberaDocumento();
+    this.sessione += 1;
+    const task = this.staccaDocumento();
     this.book = null;
     this.drawing.setElements([]);
     this.drawing2.setElements([]);
@@ -216,6 +237,8 @@ class Reader {
     this.root.hidden = true;
     document.body.classList.remove('workspace-open');
     document.dispatchEvent(new CustomEvent('skooling:reader-closed'));
+    // L'attesa viene per ultima: la memoria si libera mentre l'app va avanti.
+    if (task) await task.destroy().catch(() => {});
   }
 
   // A due pagine si sfoglia di due in due, in coppie 1-2, 3-4, 5-6...
@@ -254,10 +277,13 @@ class Reader {
     const surface = offset ? this.drawing2 : this.drawing;
     const page = await this.pdf.getPage(numero);
     const base = page.getViewport({ scale: 1 });
-    const ratio = Math.min(2, devicePixelRatio || 1);
-    const viewport = page.getViewport({ scale: (available / base.width) * this.zoom * ratio });
-    const cssWidth = viewport.width / ratio;
-    const cssHeight = viewport.height / ratio;
+    // Quanto grande si vede il foglio: questo non cambia mai.
+    const cssWidth = available * this.zoom;
+    const cssHeight = cssWidth * (base.height / base.width);
+    // Quanti pixel veri si spendono per disegnarlo: qui invece si sta sotto al
+    // tetto, altrimenti a ingrandimento alto la tela diventa ingestibile.
+    const ratio = risoluzioneAmmessa(cssWidth, cssHeight, Math.min(2, devicePixelRatio || 1));
+    const viewport = page.getViewport({ scale: (cssWidth * ratio) / base.width });
     canvas.width = Math.ceil(viewport.width);
     canvas.height = Math.ceil(viewport.height);
     canvas.style.width = `${cssWidth}px`;
@@ -322,7 +348,8 @@ class Reader {
       this.pageNumberInput.value = this.pageNumber;
       document.querySelector('#zoom-label').textContent = `${Math.round(this.zoom * 100)}%`;
       this.updateThumbnailSelection();
-      await DB.put('libri', { ...this.book, ultimaPagina: this.pageNumber });
+      // Solo il segnaposto, non tutto il libro: vedi il commento su `letture`.
+      await DB.put('letture', { id: this.book.id, pagina: this.pageNumber, data: Date.now() });
       this.book.ultimaPagina = this.pageNumber;
       this.updateBookmarkButton();
       this.mostraSegnalibri();
@@ -346,8 +373,14 @@ class Reader {
     }
   }
 
-  // Ingrandisce la pagina. `ancora` è il punto dello schermo che deve restare
-  // fermo sotto le dita: senza, resta fermo il centro di quel che si vede.
+  // Ingrandisce la pagina tenendo fermo un punto.
+  //
+  // Servono DUE punti, non uno: `contenuto` è il punto del foglio che si vuole
+  // tenere (quello che le dita hanno toccato quando il pizzico è cominciato) e
+  // `schermo` è il posto dove deve finire (dove le dita sono arrivate). Sono lo
+  // stesso punto solo se le dita non si sono spostate mentre si allargavano,
+  // che nell'uso vero non succede quasi mai: usarne uno solo faceva scappare il
+  // foglio di centinaia di pixel.
   async setZoom(value, ancora = null) {
     const prossimo = Math.max(0.75, Math.min(3.5, value));
     // Ingrandimento identico a quello di adesso: non c'è nulla da ridisegnare.
@@ -355,19 +388,23 @@ class Reader {
       this.azzeraAnteprima();
       return;
     }
-    const foglio = this.pageWrap.getBoundingClientRect();
-    const fermo = ancora || {
-      x: this.scroll.getBoundingClientRect().left + this.scroll.clientWidth / 2,
-      y: this.scroll.getBoundingClientRect().top + this.scroll.clientHeight / 2,
+    const riquadroScorrevole = this.scroll.getBoundingClientRect();
+    const centroVisibile = {
+      x: riquadroScorrevole.left + this.scroll.clientWidth / 2,
+      y: riquadroScorrevole.top + this.scroll.clientHeight / 2,
     };
-    // Dove cade quel punto sul foglio, in frazioni di foglio: è l'unica misura
+    const contenuto = ancora?.contenuto || ancora || centroVisibile;
+    const schermo = ancora?.schermo || ancora || centroVisibile;
+
+    // Dove cade il punto sul foglio, in frazioni di foglio: è l'unica misura
     // che resta valida anche dopo che il foglio ha cambiato dimensione.
-    const quotaX = foglio.width ? (fermo.x - foglio.left) / foglio.width : 0.5;
-    const quotaY = foglio.height ? (fermo.y - foglio.top) / foglio.height : 0.5;
+    const foglio = this.pageWrap.getBoundingClientRect();
+    const quotaX = foglio.width ? (contenuto.x - foglio.left) / foglio.width : 0.5;
+    const quotaY = foglio.height ? (contenuto.y - foglio.top) / foglio.height : 0.5;
 
     this.zoom = prossimo;
     await this.renderPage({ mantieniPosizione: true });
-    this.riportaSotto(quotaX, quotaY, fermo);
+    this.riportaSotto(quotaX, quotaY, schermo);
   }
 
   // Rimette sotto il punto indicato la stessa frazione di foglio che c'era
@@ -440,10 +477,12 @@ class Reader {
       return;
     }
     if (this.pinch) {
-      const { preview, centro } = this.pinch;
+      const { preview, partenza, centro } = this.pinch;
       this.pinch = null;
       this.azzeraAnteprima();
-      this.setZoom(preview, centro);
+      // Il punto del foglio è quello toccato all'inizio; deve finire dove sono
+      // arrivate le dita.
+      this.setZoom(preview, { contenuto: partenza, schermo: centro });
       return;
     }
     if (event.pointerType === 'touch') {

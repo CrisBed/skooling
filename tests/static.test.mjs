@@ -144,3 +144,34 @@ test('i simboli musicali non dipendono dai caratteri di sistema', async () => {
   assert.doesNotMatch(musica, /fillText|measureText/, 'i segni non si scrivono come testo');
   assert.match(musica, /bezierCurveTo|ellipse/, 'si disegnano con tracciati');
 });
+
+test('chiudere un libro spegne lo stato prima di mettersi ad aspettare', async () => {
+  // Chiudere un libro da centinaia di megabyte richiede tempo. Se in quel tempo
+  // si aspetta PRIMA di spegnere lo stato, chi ha già riaperto un altro libro se
+  // lo vede azzerare sotto le mani: è il difetto dell'uscire e rientrare subito.
+  const lettore = await readFile(new URL('../pdf-viewer.js', import.meta.url), 'utf8');
+  const chiusura = lettore.slice(lettore.indexOf('  async close() {'));
+  const corpo = chiusura.slice(0, chiusura.indexOf('\n  }\n'));
+  const posizioneAzzera = corpo.indexOf('this.book = null');
+  const posizioneAttesa = corpo.indexOf('await ');
+  assert.ok(posizioneAzzera >= 0 && posizioneAttesa >= 0, 'la chiusura azzera lo stato e aspetta');
+  assert.ok(posizioneAzzera < posizioneAttesa, 'ma azzera PRIMA di aspettare');
+  assert.match(lettore, /this\.sessione \+= 1|\+\+this\.sessione/, 'ogni apertura e chiusura ha il suo numero di sessione');
+});
+
+test('l’ingrandimento a due dita tiene due punti distinti, non uno solo', async () => {
+  // Il punto del foglio che si vuole tenere e il posto dove le dita sono
+  // arrivate coincidono solo se le dita non si spostano mentre si allargano.
+  // Con un punto solo il foglio scappava di centinaia di pixel.
+  const lettore = await readFile(new URL('../pdf-viewer.js', import.meta.url), 'utf8');
+  assert.match(lettore, /contenuto: partenza, schermo: centro/, 'il pizzico passa il punto del foglio e quello dello schermo');
+  assert.match(lettore, /ancora\?\.contenuto/, 'e setZoom li distingue');
+});
+
+test('il segnaposto di lettura non riscrive il libro intero', async () => {
+  // Salvare la pagina dentro il record del libro vuol dire riscrivere il PDF:
+  // con un libro da 400 MB sono mezzo secondo e 400 MB a ogni voltata di pagina.
+  const lettore = await readFile(new URL('../pdf-viewer.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(lettore, /DB\.put\('libri'/, 'il lettore non riscrive mai il record del libro');
+  assert.match(lettore, /DB\.put\('letture'/, 'salva solo il segnaposto');
+});

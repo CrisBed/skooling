@@ -116,6 +116,10 @@ async function importPdfs(files) {
 
 async function renderLibrary() {
   state.books = (await DB.getAll('libri')).sort((a, b) => b.data - a.data);
+  // Il segnaposto di lettura sta in un archivio suo: rimetterlo sul libro solo
+  // per mostrarlo, senza toccare il libro salvato.
+  const letture = new Map((await DB.getAll('letture')).map((l) => [l.id, l.pagina]));
+  for (const libro of state.books) libro.ultimaPagina = letture.get(libro.id) || libro.ultimaPagina || 1;
   state.coverUrls.forEach((url) => URL.revokeObjectURL(url));
   state.coverUrls = [];
   const query = document.querySelector('#book-search').value.trim().toLocaleLowerCase('it');
@@ -180,6 +184,7 @@ async function deleteBook(book) {
   await DB.delete('libri', book.id);
   // Via anche il testo indicizzato: senza il libro non serve più a nessuno.
   await DB.delete('indicelibri', book.id).catch(() => {});
+  await DB.delete('letture', book.id).catch(() => {});
   await DB.deleteWhere('annotazioni', (item) => item.idLibro === book.id);
   await DB.deleteWhere('segnalibri', (item) => item.idLibro === book.id);
   await renderLibrary();

@@ -32,14 +32,14 @@ export function segnoValido(chiave) { return CHIAVI_VALIDE.has(chiave); }
 // Serve per sapere dove si puo' toccare per riprenderlo e per disegnarne il
 // riquadro quando e' scelto.
 const INGOMBRI = {
-  'chiave-violino': { sinistra: 1.2, destra: 1.2, sopra: 3.4, sotto: 3.0 },
-  'chiave-basso': { sinistra: 1.2, destra: 1.4, sopra: 2.2, sotto: 1.4 },
+  'chiave-violino': { sinistra: 0.9, destra: 0.9, sopra: 3.0, sotto: 3.0 },
+  'chiave-basso': { sinistra: 0.8, destra: 1.4, sopra: 0.8, sotto: 2.0 },
   semibreve: { sinistra: 0.9, destra: 0.9, sopra: 0.7, sotto: 0.7 },
   minima: { sinistra: 0.9, destra: 1.0, sopra: 3.6, sotto: 0.7 },
   semiminima: { sinistra: 0.9, destra: 1.0, sopra: 3.6, sotto: 0.7 },
   croma: { sinistra: 0.9, destra: 1.8, sopra: 3.6, sotto: 0.7 },
-  'pausa-semibreve': { sinistra: 0.8, destra: 0.8, sopra: 0.2, sotto: 0.6 },
-  'pausa-minima': { sinistra: 0.8, destra: 0.8, sopra: 0.6, sotto: 0.2 },
+  'pausa-semibreve': { sinistra: 1.0, destra: 1.0, sopra: 0.3, sotto: 0.6 },
+  'pausa-minima': { sinistra: 1.0, destra: 1.0, sopra: 0.6, sotto: 0.3 },
   'pausa-semiminima': { sinistra: 0.7, destra: 0.7, sopra: 1.6, sotto: 1.6 },
   'pausa-croma': { sinistra: 0.7, destra: 0.7, sopra: 1.2, sotto: 1.2 },
   diesis: { sinistra: 0.6, destra: 0.6, sopra: 1.3, sotto: 1.3 },
@@ -94,35 +94,51 @@ function bandierina(context, cima, unita) {
 }
 
 function chiaveDiViolino(context, x, y, unita) {
-  // Il ricciolo si costruisce a spirale attorno alla riga del sol, che e' il
-  // punto di appoggio: cosi' la chiave cade sempre dove deve stare.
-  context.lineWidth = Math.max(1.2, unita * 0.22);
+  // Il punto di appoggio e' la riga del sol, quella attorno a cui gira il
+  // ricciolo: cosi' la chiave cade sempre dove deve stare sul rigo.
+  const u = unita;
+  context.lineWidth = Math.max(1, u * 0.19);
   context.beginPath();
-  context.moveTo(x + unita * 0.15, y + unita * 2.6);
-  context.bezierCurveTo(x + unita * 1.5, y + unita * 2.2, x + unita * 1.4, y + unita * 0.6, x + unita * 0.2, y + unita * 0.4);
-  context.bezierCurveTo(x - unita * 1.1, y + unita * 0.2, x - unita * 1.2, y - unita * 1.2, x + unita * 0.1, y - unita * 1.6);
-  context.bezierCurveTo(x + unita * 1.1, y - unita * 1.9, x + unita * 1.0, y - unita * 3.2, x + unita * 0.1, y - unita * 3.3);
-  context.bezierCurveTo(x - unita * 0.7, y - unita * 3.4, x - unita * 0.55, y - unita * 2.2, x - unita * 0.35, y - unita * 1.0);
-  context.bezierCurveTo(x - unita * 0.05, y + unita * 0.9, x + unita * 0.45, y + unita * 2.0, x + unita * 0.3, y + unita * 3.0);
+  // corpo: sale dal basso, esce sopra il rigo e ridiscende
+  context.moveTo(x - u * 0.12, y + u * 2.25);
+  context.bezierCurveTo(x - u * 0.55, y + u * 1.1, x - u * 0.1, y - u * 0.2, x + u * 0.22, y - u * 1.15);
+  context.bezierCurveTo(x + u * 0.5, y - u * 1.95, x + u * 0.42, y - u * 2.75, x + u * 0.02, y - u * 2.8);
+  context.bezierCurveTo(x - u * 0.38, y - u * 2.85, x - u * 0.5, y - u * 2.0, x - u * 0.3, y - u * 1.2);
+  context.bezierCurveTo(x - u * 0.05, y - u * 0.2, x + u * 0.62, y + u * 0.55, x + u * 0.62, y + u * 1.25);
+  context.bezierCurveTo(x + u * 0.62, y + u * 2.0, x - u * 0.15, y + u * 2.2, x - u * 0.5, y + u * 1.55);
   context.stroke();
-  // la codina in basso
+  // ricciolo attorno alla riga del sol
   context.beginPath();
-  context.arc(x + unita * 0.05, y + unita * 2.95, unita * 0.28, 0, Math.PI * 2);
+  context.moveTo(x - u * 0.3, y - u * 1.2);
+  context.bezierCurveTo(x - u * 0.75, y - u * 0.5, x - u * 0.8, y + u * 0.45, x - u * 0.12, y + u * 0.5);
+  context.bezierCurveTo(x + u * 0.4, y + u * 0.54, x + u * 0.5, y - u * 0.15, x + u * 0.1, y - u * 0.3);
+  context.stroke();
+  // codina col pallino sotto il rigo
+  context.beginPath();
+  context.moveTo(x - u * 0.12, y + u * 2.25);
+  context.lineTo(x - u * 0.12, y + u * 2.5);
+  context.stroke();
+  context.beginPath();
+  context.arc(x - u * 0.12, y + u * 2.72, u * 0.24, 0, Math.PI * 2);
   context.fill();
 }
 
 function chiaveDiBasso(context, x, y, unita) {
-  context.lineWidth = Math.max(1.2, unita * 0.24);
+  // Appoggia sulla riga del fa: il pallino grosso ci sta sopra e i due puntini
+  // le stanno accanto, uno sopra e uno sotto.
+  const u = unita;
+  context.lineWidth = Math.max(1.2, u * 0.26);
   context.beginPath();
-  context.arc(x - unita * 0.1, y - unita * 0.05, unita * 0.3, 0, Math.PI * 2);
+  context.arc(x - u * 0.35, y, u * 0.3, 0, Math.PI * 2);
   context.fill();
   context.beginPath();
-  context.moveTo(x, y - unita * 0.35);
-  context.bezierCurveTo(x + unita * 1.5, y - unita * 0.6, x + unita * 1.3, y + unita * 1.5, x - unita * 0.6, y + unita * 1.3);
+  context.moveTo(x - u * 0.15, y - u * 0.22);
+  context.bezierCurveTo(x + u * 0.95, y - u * 0.5, x + u * 1.0, y + u * 0.9, x + u * 0.2, y + u * 1.55);
+  context.bezierCurveTo(x - u * 0.1, y + u * 1.8, x - u * 0.45, y + u * 1.9, x - u * 0.7, y + u * 1.85);
   context.stroke();
-  for (const dy of [-unita * 0.45, unita * 0.45]) {
+  for (const dy of [-u * 0.5, u * 0.5]) {
     context.beginPath();
-    context.arc(x + unita * 1.15, y + dy, unita * 0.16, 0, Math.PI * 2);
+    context.arc(x + u * 1.15, y + dy, u * 0.15, 0, Math.PI * 2);
     context.fill();
   }
 }
@@ -221,10 +237,22 @@ export function disegnaSegnoMusicale(context, chiave, x, y, unita, colore = '#1f
       break;
     }
     case 'pausa-semibreve':
-      context.fillRect(x - unita * 0.7, y, unita * 1.4, unita * 0.45);
+      // Appesa SOTTO la riga: e' questo che la distingue dalla minima.
+      context.fillRect(x - unita * 0.62, y, unita * 1.24, unita * 0.42);
+      context.lineWidth = Math.max(1, unita * 0.1);
+      context.beginPath();
+      context.moveTo(x - unita * 0.95, y);
+      context.lineTo(x + unita * 0.95, y);
+      context.stroke();
       break;
     case 'pausa-minima':
-      context.fillRect(x - unita * 0.7, y - unita * 0.45, unita * 1.4, unita * 0.45);
+      // Appoggiata SOPRA la riga.
+      context.fillRect(x - unita * 0.62, y - unita * 0.42, unita * 1.24, unita * 0.42);
+      context.lineWidth = Math.max(1, unita * 0.1);
+      context.beginPath();
+      context.moveTo(x - unita * 0.95, y);
+      context.lineTo(x + unita * 0.95, y);
+      context.stroke();
       break;
     case 'pausa-semiminima': pausaSemiminima(context, x, y, unita); break;
     case 'pausa-croma': pausaCroma(context, x, y, unita); break;

@@ -6,6 +6,24 @@ export const COLORS = ['#1f2937', '#2457d6', '#db3a34', '#15956d', '#f0b429', '#
 export const WIDTHS = [2, 5, 10];
 // L'evidenziatore e' molto piu' largo della penna: deve coprire una riga di
 // testo in una passata sola, senza doverci tornare sopra due o tre volte.
+// Tetto di pixel per una tela da disegno.
+//
+// Il foglio ingrandito cresce, e con lui la tela: a ingrandimento massimo si
+// arrivava a 6300x7868, cioe' 49,6 milioni di pixel e circa 200 MB per la sola
+// tela delle annotazioni. Su un iPad e' oltre il limite di Safari, che a quel
+// punto smette di disegnare o rallenta tutto. In piu' e' lavoro sprecato: le
+// scansioni dei libri sono da circa 2800 pixel di lato, quindi disegnarle su
+// una tela di 6300 non aggiunge un solo dettaglio vero.
+export const PIXEL_MASSIMI = 8_000_000;
+
+// Quanti pixel per punto si possono usare su una superficie di quella misura
+// senza sfondare il tetto.
+export function risoluzioneAmmessa(larghezzaCss, altezzaCss, desiderata = 2) {
+  const area = Math.max(1, larghezzaCss * altezzaCss);
+  const massima = Math.sqrt(PIXEL_MASSIMI / area);
+  return Math.max(0.5, Math.min(desiderata, massima));
+}
+
 export const INGROSSO_EVIDENZIATORE = 9;
 // La trasparenza si da' una volta sola a tutta la posa, non a ogni tratto:
 // vedi disegnaElementi qui sotto.
@@ -511,6 +529,10 @@ export class DrawingSurface {
     // rigo: nei quaderni a pentagramma ci pensa il quaderno.
     this.segnoMusicale = 'semiminima';
     this.agganciaY = options.agganciaY || ((y) => y);
+    // Quanto grande viene un segno musicale, in frazione di foglio. Nei quaderni
+    // a pentagramma vale esattamente il passo fra due righe del rigo: un segno
+    // piu' grande del rigo su cui appoggia si vede subito che e' sbagliato.
+    this.unitaMusicale = options.unitaMusicale || (() => 0.016);
     this.gesto = options.gesto || creaGestoCondiviso();
     this.gesto.fogli.push(this);
     this.history = new HistoryStack(30);
@@ -541,7 +563,7 @@ export class DrawingSurface {
     const width = this.canvas.offsetWidth || rect.width;
     const height = this.canvas.offsetHeight || rect.height;
     if (!width || !height) return;
-    const ratio = Math.min(2, globalThis.devicePixelRatio || 1);
+    const ratio = risoluzioneAmmessa(width, height, Math.min(2, globalThis.devicePixelRatio || 1));
     const pixelWidth = Math.round(width * ratio);
     const pixelHeight = Math.round(height * ratio);
     if (this.canvas.width !== pixelWidth || this.canvas.height !== pixelHeight) {
@@ -685,7 +707,7 @@ export class DrawingSurface {
       const element = {
         id: createId('segno'), tipo: 'simbolo', segno: this.segnoMusicale,
         x: point.x, y: this.agganciaY(point.y),
-        unita: 0.022, colore: this.color, timestamp: Date.now(),
+        unita: this.unitaMusicale(), colore: this.color, timestamp: Date.now(),
       };
       this.elements.push(element);
       this.selectedId = element.id;

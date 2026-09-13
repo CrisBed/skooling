@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizePoint, hitTestElement, HistoryStack, makePdfFromJpegs, drawElement, DrawingSurface, creaGestoCondiviso, creaRilevatoreSwipe, spostaElemento, riquadroElemento, ditaAppoggiate, disegnaElementi, INGROSSO_EVIDENZIATORE, TINTA_EVIDENZIATORE } from '../strumenti.js';
+import { normalizePoint, hitTestElement, HistoryStack, makePdfFromJpegs, drawElement, DrawingSurface, creaGestoCondiviso, creaRilevatoreSwipe, spostaElemento, riquadroElemento, ditaAppoggiate, disegnaElementi, INGROSSO_EVIDENZIATORE, TINTA_EVIDENZIATORE, risoluzioneAmmessa, PIXEL_MASSIMI } from '../strumenti.js';
 
 function makeCanvas() {
   const context = {
@@ -505,4 +505,24 @@ test('la gomma toglie il tratto toccato e lascia stare quelli vicini', () => {
   assert.equal(surface.eraseAt({ x: 0.5, y: 0.42 }), true, 'il tratto toccato viene inciso');
   const quote = new Set(surface.elements.map((e) => Math.round(e.punti[0].y * 100)));
   assert.ok(quote.has(40) && quote.has(44), 'i tratti vicini restano al loro posto');
+});
+
+// ---- Tetto ai pixel della tela --------------------------------------------
+
+test('una tela piccola usa tutta la risoluzione che le spetta', () => {
+  assert.equal(risoluzioneAmmessa(900, 1124, 2), 2, 'a misura naturale niente da tagliare');
+  assert.equal(risoluzioneAmmessa(400, 500, 1), 1, 'non si inventa risoluzione che non è stata chiesta');
+});
+
+test('una tela grande viene tenuta sotto il tetto di pixel', () => {
+  // Il foglio a ingrandimento massimo: senza tetto si arrivava a 49 milioni di
+  // pixel, oltre il limite di Safari su iPad.
+  const larghezza = 3150, altezza = 3934;
+  const r = risoluzioneAmmessa(larghezza, altezza, 2);
+  assert.ok(r < 2, 'la risoluzione viene ridotta');
+  assert.ok(larghezza * r * altezza * r <= PIXEL_MASSIMI * 1.001, 'e il risultato sta sotto il tetto');
+});
+
+test('la risoluzione non scende mai sotto la metà, per non sgranare l’inchiostro', () => {
+  assert.equal(risoluzioneAmmessa(20000, 20000, 2), 0.5);
 });

@@ -118,8 +118,10 @@ export class NotebookManager {
     const aggancia = (canvas) => (y) => (this.current?.tipo === 'pentagramma'
       ? agganciaAlRigo(y, canvas.offsetHeight)
       : y);
-    this.surface = new DrawingSurface(this.canvas, { gesto, onChange: (elements) => this.savePage(0, elements), onTouchGesture: gestoDueDita, agganciaY: aggancia(this.canvas) });
-    this.surface2 = new DrawingSurface(this.canvas2, { gesto, onChange: (elements) => this.savePage(1, elements), onTouchGesture: gestoDueDita, agganciaY: aggancia(this.canvas2) });
+    // Il segno musicale e' alto quanto il passo del rigo, ne' piu' ne' meno.
+    const unita = (canvas) => () => (canvas.offsetHeight ? RIGO.passoRiga / canvas.offsetHeight : 0.016);
+    this.surface = new DrawingSurface(this.canvas, { gesto, onChange: (elements) => this.savePage(0, elements), onTouchGesture: gestoDueDita, agganciaY: aggancia(this.canvas), unitaMusicale: unita(this.canvas) });
+    this.surface2 = new DrawingSurface(this.canvas2, { gesto, onChange: (elements) => this.savePage(1, elements), onTouchGesture: gestoDueDita, agganciaY: aggancia(this.canvas2), unitaMusicale: unita(this.canvas2) });
     // un unico astuccio comanda entrambi i fogli (attivo = l'ultimo toccato)
     this.group = new SurfaceGroup([this.surface, this.surface2]);
     attachToolbox(document.querySelector('#notebook-tools'), this.group);
@@ -139,7 +141,12 @@ export class NotebookManager {
       bottone.setAttribute('aria-label', segno.nome);
       const anteprima = document.createElement('canvas');
       anteprima.width = 68; anteprima.height = 92;
-      disegnaSegnoMusicale(anteprima.getContext('2d'), segno.chiave, 34, 50, 9, '#1f2937');
+      const pennello = anteprima.getContext('2d');
+      // una riga di rigo dietro al segno: senza, le due pause si somigliano
+      pennello.strokeStyle = '#c3ccdb';
+      pennello.lineWidth = 1;
+      pennello.beginPath(); pennello.moveTo(4, 50.5); pennello.lineTo(64, 50.5); pennello.stroke();
+      disegnaSegnoMusicale(pennello, segno.chiave, 34, 50, 9, '#1f2937');
       bottone.append(anteprima);
       bottone.addEventListener('click', () => this.scegliSegno(segno.chiave));
       griglia.append(bottone);

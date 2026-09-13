@@ -3,6 +3,7 @@ import * as pdfjsLib from './vendor/pdf.mjs';
 import { DB } from './db.js';
 import { DrawingSurface, SurfaceGroup, attachToolbox, creaGestoCondiviso, creaRilevatoreSwipe, ditaAppoggiate, risoluzioneAmmessa } from './strumenti.js';
 import { rettangoliDaEvidenziare } from './ricerca.js';
+import { paginaSinistraLibro, paginaDestraLibro, coppiaPrecedenteLibro, coppiaSuccessivaLibro } from './pagine.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = './vendor/pdf.worker.mjs';
 
@@ -100,8 +101,8 @@ class Reader {
 
   bind() {
     document.querySelector('#close-reader').addEventListener('click', () => this.close());
-    document.querySelector('#prev-page').addEventListener('click', () => this.goTo(this.pageNumber - this.passo()));
-    document.querySelector('#next-page').addEventListener('click', () => this.goTo(this.pageNumber + this.passo()));
+    document.querySelector('#prev-page').addEventListener('click', () => this.goTo(this.indietro()));
+    document.querySelector('#next-page').addEventListener('click', () => this.goTo(this.avanti()));
     document.querySelector('#reader-two-pages').addEventListener('click', () => this.toggleDoppia());
     this.pageNumberInput.addEventListener('change', () => this.goTo(Number(this.pageNumberInput.value)));
     document.querySelector('#fit-page').addEventListener('click', () => this.setZoom(1));
@@ -144,8 +145,8 @@ class Reader {
     });
     window.addEventListener('keydown', (event) => {
       if (this.root.hidden) return;
-      if (event.key === 'ArrowLeft') this.goTo(this.pageNumber - this.passo());
-      if (event.key === 'ArrowRight') this.goTo(this.pageNumber + this.passo());
+      if (event.key === 'ArrowLeft') this.goTo(this.indietro());
+      if (event.key === 'ArrowRight') this.goTo(this.avanti());
     });
     let resizeTimer;
     window.addEventListener('resize', () => {
@@ -241,10 +242,18 @@ class Reader {
     if (task) await task.destroy().catch(() => {});
   }
 
-  // A due pagine si sfoglia di due in due, in coppie 1-2, 3-4, 5-6...
-  passo() { return this.doppia ? 2 : 1; }
+  // A due pagine la copertina sta da sola e le coppie sono 2-3, 4-5, 6-7: il
+  // passo quindi non e' costante, e lo decidono le funzioni di pagine.js.
+  indietro() { return this.doppia ? coppiaPrecedenteLibro(this.pageNumber) : this.pageNumber - 1; }
 
-  allinea(numero) { return this.doppia ? numero - ((numero - 1) % 2) : numero; }
+  avanti() { return this.doppia ? coppiaSuccessivaLibro(this.pageNumber, this.pdf?.numPages ?? 1) : this.pageNumber + 1; }
+
+  // La pagina di sinistra della coppia in cui cade `numero`. A pagina singola
+  // non si accoppia niente e il numero resta quello chiesto.
+  allinea(numero) { return this.doppia ? paginaSinistraLibro(numero) : numero; }
+
+  // La pagina di destra, oppure null quando quella di sinistra sta da sola.
+  destra() { return this.doppia ? paginaDestraLibro(this.pageNumber, this.pdf.numPages) : null; }
 
   async goTo(number) {
     if (!this.pdf) return;
@@ -276,6 +285,9 @@ class Reader {
     const wrap = offset ? this.pageWrap2 : this.pageWrap;
     const surface = offset ? this.drawing2 : this.drawing;
     const page = await this.pdf.getPage(numero);
+    // Il numero della pagina davvero disegnata su questo foglio: si legge da
+    // fuori, ed e' cosi' che si prova la sequenza delle coppie nel browser.
+    wrap.dataset.pagina = String(numero);
     const base = page.getViewport({ scale: 1 });
     // Quanto grande si vede il foglio: questo non cambia mai.
     const cssWidth = available * this.zoom;
@@ -333,8 +345,11 @@ class Reader {
     await precedente;
     if (corsa !== this.renderCorsa || !this.pdf) { liberaLaCoda(); return; }
     try {
-      const destra = this.doppia && this.pageNumber + 1 <= this.pdf.numPages ? this.pageNumber + 1 : null;
+      const destra = this.destra();
       this.pageWrap2.hidden = !destra;
+      // Foglio nascosto: via anche il numero, altrimenti resta appeso quello
+      // della coppia di prima e chi lo legge da fuori si sbaglia.
+      if (!destra) delete this.pageWrap2.dataset.pagina;
       // Con due pagine la larghezza si divide, meno lo spazio tra i due fogli.
       const available = destra
         ? Math.max(200, (this.scroll.clientWidth - 56 - 18) / 2)
@@ -353,7 +368,9 @@ class Reader {
       this.book.ultimaPagina = this.pageNumber;
       this.updateBookmarkButton();
       this.mostraSegnalibri();
-      for (const nearby of [this.pageNumber - 1, this.pageNumber + this.passo() + 1]) {
+      // Le pagine attaccate alla coppia aperta: quella prima della sinistra e
+      // quella dopo la destra, che in doppia pagina non e' sempre a due passi.
+      for (const nearby of [this.pageNumber - 1, (destra ?? this.pageNumber) + 1]) {
         if (nearby >= 1 && nearby <= this.pdf.numPages) this.pdf.getPage(nearby).catch(() => {});
       }
       // Cambiando pagina si riparte dall'alto. Ingrandendo no: si resta dove si
@@ -473,7 +490,7 @@ class Reader {
       this.pinch = null;
       this.azzeraAnteprima();
       this.lastTap = 0;
-      this.goTo(this.pageNumber + direzione * this.passo());
+      this.goTo(direzione > 0 ? this.avanti() : this.indietro());
       return;
     }
     if (this.pinch) {
@@ -534,7 +551,10 @@ class Reader {
   async saveAnnotations(offset, elements) {
     if (!this.book || !this.pdf) return;
     const page = this.pageNumber + offset;
-    if (offset && (!this.doppia || page > this.pdf.numPages)) return;
+    // Il foglio di destra scrive solo quando esiste davvero. Non basta guardare
+    // il totale: a doppia pagina aperta sulla copertina la 2 esiste ma sta
+    // nella coppia dopo, e un segno finito li' la sporcherebbe.
+    if (offset && page !== this.destra()) return;
     const chiave = offset ? 'annotationSaveToken2' : 'annotationSaveToken';
     const token = ++this[chiave];
     const bookId = this.book.id;

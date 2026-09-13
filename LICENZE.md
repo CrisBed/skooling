@@ -26,3 +26,21 @@ L'app ne porta con sé un estratto di sedici glifi, `vendor/SkoolingMusica.woff2
 Licenza SIL Open Font License 1.1, testo completo in `vendor/BRAVURA-LICENSE.txt`.
 Nome riservato del font: "Bravura". L'estratto è ridistribuito con un altro nome,
 come la licenza richiede.
+
+## I 240 giorni del diario
+
+I contenuti in `diario-contenuti.js` (battute, quiz, curiosità, sfide, oroscopi
+scherzosi e parole del giorno) sono stati **scritti da zero per Skooling**.
+
+Ci si è ispirati ai GENERI che si trovano nei diari scolastici e in rete, cioè
+alle forme, non ai testi: dentro non c'è una battuta copiata, una vignetta
+ricalcata o una frase presa da un diario, da un sito o da un libro di qualcun
+altro. Nessuna citazione, nessuna riproduzione, nessun marchio altrui.
+
+"Smemoranda" è un marchio registrato di terzi. Skooling non lo usa, non lo
+nomina nell'interfaccia e non richiama la grafica di quel diario: la direzione
+scelta da Cristian è uno stile, scritta a mano e biglietti con l'ombra netta,
+non un'imitazione di un prodotto esistente.
+
+Le curiosità riportano fatti verificabili. Battute e oroscopi sono
+dichiaratamente scherzi, e l'etichetta sul biglietto lo dice ogni volta.

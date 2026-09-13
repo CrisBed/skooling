@@ -4,6 +4,7 @@ import { PDFViewer, extractPdfCover } from './pdf-viewer.js';
 import { NotebookManager } from './quaderni.js';
 import { AlbumManager, ridimensionaFoto, sistemaFotoSenzaAlbum } from './album.js';
 import { cercaNeiLibri, normalizza } from './ricerca.js';
+import { mostraDiario } from './diario.js';
 import { downloadBlob } from './strumenti.js';
 
 const state = { books: [], tasks: [], taskFilter: 'todo', coverUrls: [], fotoCompito: null, urlCompiti: [] };
@@ -36,7 +37,9 @@ export function navigate(view) {
   document.querySelectorAll('[data-go]').forEach((button) => button.classList.toggle('active', button.dataset.go === view));
   if (view === 'libreria') renderLibrary();
   if (view === 'quaderni') notebooks.renderList();
-  if (view === 'compiti') renderTasks();
+  // Il biglietto si rifa' a ogni visita: se nel frattempo e' passata la
+  // mezzanotte cambia da solo, senza riavviare l'app.
+  if (view === 'compiti') { mostraDiario(); renderTasks(); }
   if (view === 'album') album.renderList();
   if (view === 'impostazioni') updateStorage();
   document.querySelector('#main-content').scrollTo?.(0, 0);
@@ -558,6 +561,7 @@ async function start() {
     // Le foto salvate prima degli album vanno messe in un album per giornata,
     // altrimenti sparirebbero dall'elenco pur restando nell'archivio.
     await sistemaFotoSenzaAlbum();
+    mostraDiario();
     await Promise.all([renderLibrary(), notebooks.renderList(), renderTasks(), album.renderList(), updateStorage()]);
     await registerServiceWorker();
   } catch (error) {

@@ -73,6 +73,8 @@ Nel quaderno il dito scrive sempre, senza Apple Pencil. **Due dita ingrandiscono
 
 Apri **Compiti** e scegli **Nuovo compito**. Puoi collegarlo a una pagina di un libro oppure a una pagina di quaderno. Il pulsante con la freccia apre direttamente quel punto.
 
+Metà della sezione è occupata dal **biglietto del giorno**: una battuta, un quiz lampo, una curiosità vera, una sfida, l'oroscopo della scuola o la parola del giorno. Cambia da solo ogni giorno e non si ripete per 240 giorni; quando finiscono, il giro ricomincia. Non serve rete e non c'è niente da scrivere: i 240 giorni viaggiano dentro l'app. Sul quiz si tocca una risposta e si scopre subito com'è andata.
+
 ### Album delle foto
 
 Le foto che non appartengono a un compito stanno in **Album**, raccolte in cartelle.

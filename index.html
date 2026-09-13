@@ -76,17 +76,25 @@
       </section>
 
       <section id="compiti" class="view" aria-labelledby="compiti-title">
-        <div class="view-heading">
-          <div><p class="eyebrow">Prossimi giorni</p><h1 id="compiti-title">Compiti</h1><p class="subtitle">Prima le scadenze più vicine, senza sorprese.</p></div>
-          <button id="new-task" class="button primary" type="button"><span aria-hidden="true">＋</span> Nuovo compito</button>
+        <div class="diario">
+          <div class="diario-oggi-colonna">
+            <p class="eyebrow">Oggi sul diario</p>
+            <div id="diario-oggi" class="diario-oggi" aria-live="polite"></div>
+          </div>
+          <div class="diario-compiti">
+            <div class="view-heading">
+              <div><p class="eyebrow">Prossimi giorni</p><h1 id="compiti-title">Compiti</h1><p class="subtitle">Prima le scadenze più vicine, senza sorprese.</p></div>
+              <button id="new-task" class="button primary" type="button"><span aria-hidden="true">＋</span> Nuovo compito</button>
+            </div>
+            <div class="task-tabs" role="group" aria-label="Filtra compiti">
+              <button type="button" class="chip active" data-task-filter="todo">Da fare</button>
+              <button type="button" class="chip" data-task-filter="all">Tutti</button>
+              <button type="button" class="chip" data-task-filter="done">Fatti</button>
+            </div>
+            <div id="task-empty" class="empty-state compact"><div class="empty-check" aria-hidden="true">✓</div><h2>Tutto tranquillo</h2><p>I nuovi compiti compariranno qui in ordine di consegna.</p></div>
+            <div id="task-list" class="task-list" aria-live="polite"></div>
+          </div>
         </div>
-        <div class="task-tabs" role="group" aria-label="Filtra compiti">
-          <button type="button" class="chip active" data-task-filter="todo">Da fare</button>
-          <button type="button" class="chip" data-task-filter="all">Tutti</button>
-          <button type="button" class="chip" data-task-filter="done">Fatti</button>
-        </div>
-        <div id="task-empty" class="empty-state compact"><div class="empty-check" aria-hidden="true">✓</div><h2>Tutto tranquillo</h2><p>I nuovi compiti compariranno qui in ordine di consegna.</p></div>
-        <div id="task-list" class="task-list" aria-live="polite"></div>
       </section>
 
       <section id="album" class="view" aria-labelledby="album-title">

@@ -1,6 +1,6 @@
 // Gestione dei quaderni e delle loro pagine vettoriali.
 import { DB, createId } from './db.js';
-import { SEGNI_MUSICALI, disegnaSegnoMusicale, fontePronta } from './musica.js';
+import { SEGNI_MUSICALI, GRUPPI_MUSICALI, disegnaAnteprimaSegno, fontePronta } from './musica.js';
 import { DrawingSurface, SurfaceGroup, attachToolbox, disegnaElementi, canvasToJpeg, makePdfFromJpegs, downloadBlob, creaGestoCondiviso, creaRilevatoreSwipe, ditaAppoggiate } from './strumenti.js';
 
 function safeFilename(value) {
@@ -129,28 +129,51 @@ export class NotebookManager {
     this.bind();
   }
 
-  // Costruisce la tavolozza dei simboli, ognuno disegnato davvero com'e': un
-  // elenco di nomi non direbbe niente a chi cerca la nota che gli serve.
+  // Costruisce la tavolozza dei simboli: ogni segno disegnato grande sul suo
+  // pezzo di rigo, col nome sotto e raccolto nel suo gruppo. Un elenco di soli
+  // nomi non direbbe niente a chi cerca la nota, ma un disegno piccolo e senza
+  // nome obbliga ad andare a tentativi, che e' com'era prima.
   costruisciTavolozzaMusicale() {
     const griglia = document.querySelector('#notebook-music-grid');
-    if (griglia.childElementCount) return;
-    for (const segno of SEGNI_MUSICALI) {
-      const bottone = document.createElement('button');
-      bottone.type = 'button';
-      bottone.dataset.segno = segno.chiave;
-      bottone.title = segno.nome;
-      bottone.setAttribute('aria-label', segno.nome);
-      const anteprima = document.createElement('canvas');
-      anteprima.width = 68; anteprima.height = 92;
-      const pennello = anteprima.getContext('2d');
-      // una riga di rigo dietro al segno: senza, le due pause si somigliano
-      pennello.strokeStyle = '#c3ccdb';
-      pennello.lineWidth = 1;
-      pennello.beginPath(); pennello.moveTo(4, 50.5); pennello.lineTo(64, 50.5); pennello.stroke();
-      disegnaSegnoMusicale(pennello, segno.chiave, 34, 50, 9, '#1f2937');
-      bottone.append(anteprima);
-      bottone.addEventListener('click', () => this.scegliSegno(segno.chiave));
-      griglia.append(bottone);
+    if (!griglia.childElementCount) {
+      for (const gruppo of GRUPPI_MUSICALI) {
+        const titolo = document.createElement('p');
+        titolo.className = 'music-group';
+        titolo.textContent = gruppo.nome;
+        const fila = document.createElement('div');
+        fila.className = 'music-row';
+        for (const segno of SEGNI_MUSICALI.filter((voce) => voce.gruppo === gruppo.chiave)) {
+          fila.append(this.bottoneSegno(segno));
+        }
+        griglia.append(titolo, fila);
+      }
+    }
+    this.ridisegnaTavolozzaMusicale();
+    // Il font di notazione arriva dopo: finche' non e' pronto non si disegna un
+    // solo pixel, ed era per questo che i riquadri restavano vuoti mentre sul
+    // foglio, ridisegnato piu' tardi, i segni si vedevano bene.
+    fontePronta().then(() => this.ridisegnaTavolozzaMusicale());
+  }
+
+  bottoneSegno(segno) {
+    const bottone = document.createElement('button');
+    bottone.type = 'button';
+    bottone.dataset.segno = segno.chiave;
+    bottone.title = segno.nome;
+    bottone.setAttribute('aria-label', segno.nome);
+    const anteprima = document.createElement('canvas');
+    anteprima.className = 'music-preview';
+    anteprima.setAttribute('aria-hidden', 'true');
+    const nome = document.createElement('span');
+    nome.textContent = segno.breve;
+    bottone.append(anteprima, nome);
+    bottone.addEventListener('click', () => this.scegliSegno(segno.chiave));
+    return bottone;
+  }
+
+  ridisegnaTavolozzaMusicale() {
+    for (const anteprima of document.querySelectorAll('#notebook-music-grid canvas')) {
+      disegnaAnteprimaSegno(anteprima, anteprima.closest('button').dataset.segno);
     }
   }
 

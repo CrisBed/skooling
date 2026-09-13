@@ -48,24 +48,35 @@ const GLIFI = {
 // testa e non l'insieme testa più gambo, che pende tutto da una parte.
 const LARGHEZZA_TESTA = 1.18;
 
+// `breve` e' il nome scritto sotto l'anteprima nel selettore: sta in poco
+// spazio, e il gruppo qui sopra toglie ogni dubbio (sotto Pause, "Semibreve"
+// vuol dire la pausa di semibreve). Il nome intero resta nell'etichetta.
 export const SEGNI_MUSICALI = [
-  { chiave: 'chiave-violino', nome: 'Chiave di violino', gruppo: 'chiavi' },
-  { chiave: 'chiave-basso', nome: 'Chiave di basso', gruppo: 'chiavi' },
-  { chiave: 'semibreve', nome: 'Semibreve', gruppo: 'note' },
-  { chiave: 'minima', nome: 'Minima', gruppo: 'note' },
-  { chiave: 'semiminima', nome: 'Semiminima', gruppo: 'note' },
-  { chiave: 'croma', nome: 'Croma', gruppo: 'note' },
-  { chiave: 'pausa-semibreve', nome: 'Pausa di semibreve', gruppo: 'pause' },
-  { chiave: 'pausa-minima', nome: 'Pausa di minima', gruppo: 'pause' },
-  { chiave: 'pausa-semiminima', nome: 'Pausa di semiminima', gruppo: 'pause' },
-  { chiave: 'pausa-croma', nome: 'Pausa di croma', gruppo: 'pause' },
-  { chiave: 'diesis', nome: 'Diesis', gruppo: 'segni' },
-  { chiave: 'bemolle', nome: 'Bemolle', gruppo: 'segni' },
-  { chiave: 'bequadro', nome: 'Bequadro', gruppo: 'segni' },
-  { chiave: 'punto', nome: 'Punto di valore', gruppo: 'segni' },
-  { chiave: 'terzina', nome: 'Terzina', gruppo: 'segni' },
-  { chiave: 'legatura', nome: 'Legatura', gruppo: 'segni' },
-  { chiave: 'stanghetta', nome: 'Stanghetta', gruppo: 'segni' },
+  { chiave: 'chiave-violino', nome: 'Chiave di violino', breve: 'Violino', gruppo: 'chiavi' },
+  { chiave: 'chiave-basso', nome: 'Chiave di basso', breve: 'Basso', gruppo: 'chiavi' },
+  { chiave: 'semibreve', nome: 'Semibreve', breve: 'Semibreve', gruppo: 'note' },
+  { chiave: 'minima', nome: 'Minima', breve: 'Minima', gruppo: 'note' },
+  { chiave: 'semiminima', nome: 'Semiminima', breve: 'Semiminima', gruppo: 'note' },
+  { chiave: 'croma', nome: 'Croma', breve: 'Croma', gruppo: 'note' },
+  { chiave: 'pausa-semibreve', nome: 'Pausa di semibreve', breve: 'Semibreve', gruppo: 'pause' },
+  { chiave: 'pausa-minima', nome: 'Pausa di minima', breve: 'Minima', gruppo: 'pause' },
+  { chiave: 'pausa-semiminima', nome: 'Pausa di semiminima', breve: 'Semiminima', gruppo: 'pause' },
+  { chiave: 'pausa-croma', nome: 'Pausa di croma', breve: 'Croma', gruppo: 'pause' },
+  { chiave: 'diesis', nome: 'Diesis', breve: 'Diesis', gruppo: 'segni' },
+  { chiave: 'bemolle', nome: 'Bemolle', breve: 'Bemolle', gruppo: 'segni' },
+  { chiave: 'bequadro', nome: 'Bequadro', breve: 'Bequadro', gruppo: 'segni' },
+  { chiave: 'punto', nome: 'Punto di valore', breve: 'Punto', gruppo: 'segni' },
+  { chiave: 'terzina', nome: 'Terzina', breve: 'Terzina', gruppo: 'segni' },
+  { chiave: 'legatura', nome: 'Legatura', breve: 'Legatura', gruppo: 'segni' },
+  { chiave: 'stanghetta', nome: 'Stanghetta', breve: 'Stanghetta', gruppo: 'segni' },
+];
+
+// I segni si presentano a gruppi: chi cerca una pausa guarda solo fra le pause.
+export const GRUPPI_MUSICALI = [
+  { chiave: 'chiavi', nome: 'Chiavi' },
+  { chiave: 'note', nome: 'Note' },
+  { chiave: 'pause', nome: 'Pause' },
+  { chiave: 'segni', nome: 'Altri segni' },
 ];
 
 const CHIAVI_VALIDE = new Set(SEGNI_MUSICALI.map((segno) => segno.chiave));
@@ -147,4 +158,72 @@ export function disegnaSegnoMusicale(context, chiave, x, y, unita, colore = '#1f
   context.textBaseline = 'alphabetic';
   context.fillText(segno.carattere, x + scostamento(segno) * unita, y + (segno.abbassa || 0) * unita);
   context.restore();
+}
+
+// ---------------------------------------------------------------------------
+// L'anteprima nel selettore dei segni.
+//
+// Il difetto era doppio. Il primo, il piu' grave: la tavolozza si disegnava una
+// volta sola, quasi sempre PRIMA che il font fosse pronto, e finche' non lo e'
+// `fillText` non lascia un solo pixel. Sul foglio il segno si ridisegna dopo, e
+// infatti li' si vedeva bene: era proprio quel che Cristian raccontava.
+// Il secondo: i segni erano disegnati a 18 pixel a schermo, e a quella misura
+// due pause diverse sono due macchioline uguali.
+//
+// Qui ogni segno prende tutto lo spazio che ha nel suo riquadro, dentro un
+// pezzo di rigo vero: e' il rigo che distingue una pausa appesa da una
+// appoggiata, ed e' come lo si vedra' una volta posato sul foglio.
+// ---------------------------------------------------------------------------
+export const ANTEPRIMA = { larghezza: 54, altezza: 58 };
+export const UNITA_ANTEPRIMA_MASSIMA = 11;
+const MEZZO_RIGO = 2; // due spazi sopra e due sotto la riga di appoggio
+const MARGINE_ANTEPRIMA = 3;
+
+// Quanto grande si puo' disegnare un segno in un riquadro di quella misura,
+// tenendoci dentro anche le cinque righe del rigo.
+export function unitaAnteprima(chiave, larghezza = ANTEPRIMA.larghezza, altezza = ANTEPRIMA.altezza) {
+  const ingombro = ingombroSegno(chiave);
+  const sopra = Math.max(ingombro.sopra, MEZZO_RIGO);
+  const sotto = Math.max(ingombro.sotto, MEZZO_RIGO);
+  const largo = Math.max(ingombro.sinistra + ingombro.destra, 1);
+  return Math.max(3, Math.min(
+    UNITA_ANTEPRIMA_MASSIMA,
+    (altezza - MARGINE_ANTEPRIMA * 2) / (sopra + sotto),
+    (larghezza - MARGINE_ANTEPRIMA * 2) / largo,
+  ));
+}
+
+// Dove cade la riga di appoggio dentro il riquadro: quel che avanza si divide
+// fra sopra e sotto, cosi' il segno resta in mezzo senza uscire dai bordi.
+export function appoggioAnteprima(chiave, larghezza = ANTEPRIMA.larghezza, altezza = ANTEPRIMA.altezza) {
+  const ingombro = ingombroSegno(chiave);
+  const unita = unitaAnteprima(chiave, larghezza, altezza);
+  const sopra = Math.max(ingombro.sopra, MEZZO_RIGO);
+  const sotto = Math.max(ingombro.sotto, MEZZO_RIGO);
+  return { unita, y: (altezza - (sopra + sotto) * unita) / 2 + sopra * unita };
+}
+
+export function disegnaAnteprimaSegno(canvas, chiave, opzioni = {}) {
+  const {
+    larghezza = ANTEPRIMA.larghezza, altezza = ANTEPRIMA.altezza,
+    colore = '#16202f', rigo = '#a9b5c8', scala = 2,
+  } = opzioni;
+  canvas.width = Math.round(larghezza * scala);
+  canvas.height = Math.round(altezza * scala);
+  const pennello = canvas.getContext?.('2d');
+  if (!pennello) return null;
+  pennello.setTransform?.(scala, 0, 0, scala, 0, 0);
+  pennello.clearRect(0, 0, larghezza, altezza);
+  const { unita, y } = appoggioAnteprima(chiave, larghezza, altezza);
+  pennello.strokeStyle = rigo;
+  pennello.lineWidth = 1;
+  for (let riga = -MEZZO_RIGO; riga <= MEZZO_RIGO; riga += 1) {
+    const quota = y + riga * unita;
+    pennello.beginPath();
+    pennello.moveTo(1, quota);
+    pennello.lineTo(larghezza - 1, quota);
+    pennello.stroke();
+  }
+  disegnaSegnoMusicale(pennello, chiave, larghezza / 2, y, unita, colore);
+  return { unita, y };
 }

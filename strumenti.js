@@ -148,6 +148,111 @@ function splitUnderline(element, eraserPoint, tolerance) {
   }));
 }
 
+// ---------------------------------------------------------------------------
+// La gomma sulle forme geometriche.
+//
+// Un cerchio, un quadrato o una freccia sono oggetti interi: nel foglio c'e'
+// scritto "un cerchio da qui a qui", non i tanti puntini che lo disegnano. Per
+// questo la gomma prima li toglieva tutti d'un colpo, mentre sui tratti a mano
+// libera toglie solo il pezzo toccato.
+//
+// La strada scelta: quando la gomma tocca davvero una forma, la forma viene
+// RISCRITTA nei tratti che la disegnano, e da quel momento in poi si cancella
+// esattamente come un segno di penna. Quel che resta ha la stessa forma di
+// prima, stesso colore e stesso spessore: a vedersi non cambia niente, cambia
+// solo di che cosa e' fatta.
+//
+// La conversione si paga una volta sola e solo sulla forma toccata: per questo
+// prima si controlla con un conto semplice se la gomma ci e' sopra davvero.
+// ---------------------------------------------------------------------------
+export const FORME_TAGLIABILI = ['linea', 'freccia', 'cerchio', 'rettangolo'];
+const PASSI_CERCHIO = 96;
+const MISURA_PREDEFINITA = { larghezza: 1000, altezza: 1000 };
+
+function trattoDaForma(element, punti, indice = 0) {
+  return {
+    id: indice ? createId('segno') : element.id,
+    tipo: 'penna',
+    colore: element.colore,
+    spessore: element.spessore,
+    timestamp: element.timestamp,
+    punti,
+  };
+}
+
+// La punta della freccia nel disegno e' lunga tanti pixel: qui va riportata
+// alla misura del foglio, altrimenti su una tela alta e stretta verrebbe storta.
+function lunghezzaPunta(element) { return 12 + (element.spessore || 2); }
+
+export function convertiInTratti(element, misura = MISURA_PREDEFINITA) {
+  if (element.tipo === 'cerchio') {
+    const cx = (element.x1 + element.x2) / 2;
+    const cy = (element.y1 + element.y2) / 2;
+    const rx = Math.abs(element.x2 - element.x1) / 2;
+    const ry = Math.abs(element.y2 - element.y1) / 2;
+    const punti = [];
+    for (let passo = 0; passo <= PASSI_CERCHIO; passo += 1) {
+      const angolo = (passo / PASSI_CERCHIO) * Math.PI * 2;
+      punti.push({ x: cx + rx * Math.cos(angolo), y: cy + ry * Math.sin(angolo) });
+    }
+    return [trattoDaForma(element, punti)];
+  }
+  if (element.tipo === 'rettangolo') {
+    const sinistra = Math.min(element.x1, element.x2);
+    const destra = Math.max(element.x1, element.x2);
+    const alto = Math.min(element.y1, element.y2);
+    const basso = Math.max(element.y1, element.y2);
+    return [trattoDaForma(element, [
+      { x: sinistra, y: alto }, { x: destra, y: alto }, { x: destra, y: basso },
+      { x: sinistra, y: basso }, { x: sinistra, y: alto },
+    ])];
+  }
+  const asta = [{ x: element.x1, y: element.y1 }, { x: element.x2, y: element.y2 }];
+  if (element.tipo !== 'freccia') return [trattoDaForma(element, asta)];
+  // Le due barbe della punta sono tratti per conto loro: cancellandone una,
+  // l'altra resta dov'e'.
+  const larghezza = Math.max(1, misura.larghezza);
+  const altezza = Math.max(1, misura.altezza);
+  const lunghezza = lunghezzaPunta(element);
+  const angolo = Math.atan2((element.y2 - element.y1) * altezza, (element.x2 - element.x1) * larghezza);
+  const barba = (scarto) => [
+    { x: element.x2, y: element.y2 },
+    {
+      x: element.x2 - (lunghezza * Math.cos(angolo + scarto)) / larghezza,
+      y: element.y2 - (lunghezza * Math.sin(angolo + scarto)) / altezza,
+    },
+  ];
+  return [
+    trattoDaForma(element, asta, 0),
+    trattoDaForma(element, barba(-Math.PI / 6), 1),
+    trattoDaForma(element, barba(Math.PI / 6), 2),
+  ];
+}
+
+// Conto semplice: la gomma sta sulla forma? Serve a non riscrivere in tratti
+// una figura che nessuno ha toccato.
+function gommaSullaForma(element, punto, tolleranza, misura) {
+  if (hitTestElement(element, punto, tolleranza)) return true;
+  if (element.tipo !== 'freccia') return false;
+  // La punta sporge fuori dall'asta: attorno al vertice il raggio si allarga.
+  const raggio = lunghezzaPunta(element) / Math.max(1, Math.min(misura.larghezza, misura.altezza));
+  return Math.hypot(punto.x - element.x2, punto.y - element.y2) <= raggio + tolleranza;
+}
+
+// Toglie dalla forma il pezzo toccato. Se la gomma non ne ha tolto niente
+// restituisce null, e la forma resta l'oggetto intero che era.
+export function tagliaForma(element, puntoGomma, tolleranza, misura = MISURA_PREDEFINITA) {
+  if (!gommaSullaForma(element, puntoGomma, tolleranza, misura)) return null;
+  const risultato = [];
+  let tagliata = false;
+  for (const tratto of convertiInTratti(element, misura)) {
+    const pezzi = splitFreehandStroke(tratto, puntoGomma, tolleranza);
+    if (pezzi) { tagliata = true; risultato.push(...pezzi); }
+    else risultato.push(tratto);
+  }
+  return tagliata ? risultato : null;
+}
+
 export class HistoryStack {
   constructor(limit = 30) {
     this.limit = Math.max(20, limit);
@@ -676,10 +781,17 @@ export class DrawingSurface {
   setReadOnly(value) { this.readOnly = Boolean(value); }
   setDrawWithFinger(value) { this.drawWithFinger = Boolean(value); }
 
+  // Misura in pixel della tela: la gomma ne ha bisogno per riportare al foglio
+  // la punta della freccia, che nel disegno e' larga tanti pixel.
+  misuraFoglio() {
+    return { larghezza: this.canvas.width || 1000, altezza: this.canvas.height || 1000 };
+  }
+
   eraseAt(point) {
     // La gomma toglie quel che tocca davvero, non un'area larga attorno: il
     // raggio segue lo spessore scelto e resta vicino a quello della penna.
     const tolerance = Math.max(0.004, this.width / 700);
+    const misura = this.misuraFoglio();
     let changed = false;
     const next = [];
     for (const element of this.elements) {
@@ -689,6 +801,12 @@ export class DrawingSurface {
         else next.push(element);
       } else if (element.tipo === 'sottolineatura') {
         const pieces = splitUnderline(element, point, tolerance);
+        if (pieces) { changed = true; next.push(...pieces); }
+        else next.push(element);
+      } else if (FORME_TAGLIABILI.includes(element.tipo)) {
+        // Cerchi, quadrati, righe e frecce si cancellano a pezzi come i tratti
+        // a mano libera: la parte toccata sparisce, il resto resta.
+        const pieces = tagliaForma(element, point, tolerance, misura);
         if (pieces) { changed = true; next.push(...pieces); }
         else next.push(element);
       } else if (hitTestElement(element, point, tolerance)) changed = true;
@@ -729,6 +847,45 @@ export class DrawingSurface {
     this.textDraft = { ...this.textDraft, ...draft, testo: text };
     this.commit();
     return true;
+  }
+
+  // La casella di testo su cui agiscono i comandi dell'astuccio: quella aperta
+  // per scriverci, altrimenti l'ultima scelta.
+  testoCorrente() {
+    const id = this.editingId || this.selectedId;
+    if (!id) return null;
+    return this.elements.find((item) => item.id === id && item.tipo === 'testo') || null;
+  }
+
+  // Cambia misura, grassetto e corsivo della casella: il testo scritto non si
+  // tocca. Vale per tutta la casella, che e' il modo che regge senza sorprese:
+  // meta' parola in grassetto vorrebbe un testo a pezzi, e la casella nasce
+  // proprio per tenere una frase intera.
+  // Cambia solo quel che le si passa: chi tocca il colore non deve trovarsi
+  // cambiata anche la misura.
+  applicaStileTesto(stile = {}) {
+    const element = this.testoCorrente();
+    if (!element) return false;
+    if (stile.dimensioneTesto !== undefined) element.dimensioneTesto = Number(stile.dimensioneTesto) || element.dimensioneTesto || 24;
+    if (stile.carattere !== undefined && TEXT_FONTS[stile.carattere]) element.carattere = stile.carattere;
+    if (stile.grassetto !== undefined) element.grassetto = Boolean(stile.grassetto);
+    if (stile.corsivo !== undefined) element.corsivo = Boolean(stile.corsivo);
+    if (stile.colore !== undefined) element.colore = stile.colore;
+    this.vestiEditorTesto(element);
+    this.commit();
+    return true;
+  }
+
+  // Se la casella e' aperta per scriverci, lo stile si vede subito anche li':
+  // quel che si scrive deve avere l'aspetto di quel che resta sul foglio.
+  vestiEditorTesto(element) {
+    const editor = this.textEditor;
+    if (!editor || this.editingId !== element.id) return;
+    const altezza = this.canvas.getBoundingClientRect().height || 1000;
+    editor.style.fontSize = `${Math.max(12, (element.dimensioneTesto || 24) * altezza / 1000)}px`;
+    editor.style.fontFamily = TEXT_FONTS[element.carattere] || TEXT_FONTS.sans;
+    editor.style.fontWeight = element.grassetto ? '700' : '400';
+    editor.style.fontStyle = element.corsivo ? 'italic' : 'normal';
   }
 
   canDraw(event) {
@@ -833,6 +990,7 @@ export class DrawingSurface {
         // tocco una casella: mi preparo a spostarla; se non trascino (tap) la apro per scriverci
         this.selectedId = existing.id;
         this.active = { kind: 'move-text', id: existing.id, start: point, original: clone(existing), moved: false };
+        this.onTextSelection(clone(existing)); // l'astuccio mostra lo stile di questa casella
         this.render();
         return;
       }
@@ -844,8 +1002,13 @@ export class DrawingSurface {
         // Una casella in cui ci sta una frase, non una parola sola.
         w: 0.62, h: 0.18,
         colore: this.color,
-        dimensioneTesto: this.textSizeFromWidth(),
-        allineamento: 'left',
+        // Misura e stile sono quelli scelti nell'astuccio: una casella nuova
+        // nasce gia' come si vuole, senza doverla ritoccare ogni volta.
+        dimensioneTesto: this.dimensioneTestoScelta(),
+        carattere: TEXT_FONTS[this.textDraft.carattere] ? this.textDraft.carattere : 'sans',
+        grassetto: Boolean(this.textDraft.grassetto),
+        corsivo: Boolean(this.textDraft.corsivo),
+        allineamento: ['left', 'center', 'right'].includes(this.textDraft.allineamento) ? this.textDraft.allineamento : 'left',
         timestamp: Date.now(),
       };
       this.elements.push(element);
@@ -950,8 +1113,11 @@ export class DrawingSurface {
     this.commit();
   }
 
-  textSizeFromWidth() {
-    return this.width <= 2 ? 26 : this.width >= 10 ? 60 : 40;
+  // La misura del carattere e' quella scelta nell'astuccio. Prima veniva dallo
+  // spessore della penna, e non c'era modo di cambiarla: tre misure fisse e
+  // nessun comando.
+  dimensioneTestoScelta() {
+    return Number(this.textDraft.dimensioneTesto) || 24;
   }
 
   // Apre una casella di testo editabile IN-PLACE sul foglio: la tastiera grande del
@@ -960,6 +1126,7 @@ export class DrawingSurface {
   apriEditorTesto(element) {
     const parent = this.canvas.parentElement;
     if (!parent || typeof document === 'undefined') return; // senza DOM (es. test): niente casella
+    this.onTextSelection(clone(element)); // l'astuccio mostra lo stile di questa casella
     this.editingId = element.id;
     this.render();
     const rect = this.canvas.getBoundingClientRect();
@@ -971,6 +1138,10 @@ export class DrawingSurface {
     editor.style.top = `${element.y * 100}%`;
     editor.style.color = element.colore;
     editor.style.fontSize = `${Math.max(12, element.dimensioneTesto * rect.height / 1000)}px`;
+    // Grassetto, corsivo e carattere si vedono gia' mentre si scrive.
+    editor.style.fontFamily = TEXT_FONTS[element.carattere] || TEXT_FONTS.sans;
+    editor.style.fontWeight = element.grassetto ? '700' : '400';
+    editor.style.fontStyle = element.corsivo ? 'italic' : 'normal';
     // La casella si apre già larga quanto l'elemento e alta abbastanza da
     // invitare a scrivere una frase; poi cresce da sola col testo.
     editor.style.width = `${Math.min(element.w, 1 - element.x) * 100}%`;
@@ -1096,6 +1267,8 @@ export class SurfaceGroup {
   undo() { return this.active.undo(); }
   redo() { return this.active.redo(); }
   updateSelectedText(draft) { return this.active.updateSelectedText(draft); }
+  testoCorrente() { return this.active.testoCorrente(); }
+  applicaStileTesto(stile) { return this.active.applicaStileTesto(stile); }
   render() { this.active.render(); }
 
   get textDraft() { return this.active.textDraft; }
@@ -1187,35 +1360,26 @@ export function attachToolbox(root, surface) {
     return button;
   }));
 
+  // Comandi del testo: misura del carattere, grassetto e corsivo. Compaiono
+  // quando si sceglie lo strumento Testo e spariscono con gli altri. Il testo
+  // si scrive sul foglio, non qui: questo pannello ne governa solo l'aspetto.
   const textPanel = document.createElement('section');
   textPanel.className = 'text-panel';
   textPanel.dataset.textPanel = '';
   textPanel.hidden = true;
   textPanel.innerHTML = `
-    <label class="text-field">Testo<textarea data-text-value rows="3" maxlength="500" placeholder="Scrivi qui il testo"></textarea></label>
-    <div class="text-control-row">
-      <label>Dimensione<select data-text-size>${TEXT_SIZES.map((size) => `<option value="${size}"${size === 24 ? ' selected' : ''}>${size}</option>`).join('')}</select></label>
-      <label>Carattere<select data-text-font><option value="sans">Semplice</option><option value="serif">Classico</option><option value="mono">Monospazio</option></select></label>
-    </div>
+    <label>Dimensione<select data-text-size>${TEXT_SIZES.map((size) => `<option value="${size}"${size === 24 ? ' selected' : ''}>${size}</option>`).join('')}</select></label>
+    <label>Carattere<select data-text-font><option value="sans">Semplice</option><option value="serif">Classico</option><option value="mono">Monospazio</option></select></label>
     <div class="text-style-buttons" role="group" aria-label="Stile del testo">
       <button type="button" data-text-bold aria-pressed="false" aria-label="Grassetto"><strong>G</strong></button>
       <button type="button" data-text-italic aria-pressed="false" aria-label="Corsivo"><em>C</em></button>
-      <button type="button" data-text-align="left" class="active" aria-label="Allinea a sinistra">≡</button>
-      <button type="button" data-text-align="center" aria-label="Allinea al centro">≡</button>
-      <button type="button" data-text-align="right" aria-label="Allinea a destra">≡</button>
     </div>
-    <p class="text-help" data-text-help>Scrivi il testo, scegli lo stile e premi Prepara.</p>
-    <div class="text-actions">
-      <button type="button" data-text-new>Nuovo</button>
-      <button type="button" data-text-apply class="primary-mini">Prepara</button>
-    </div>`;
+    <p class="text-help" data-text-help>Vale per la casella scelta. Senza casella scelta, vale per la prossima che scrivi.</p>`;
   root.querySelector('.widths')?.insertAdjacentElement('afterend', textPanel);
 
-  const textValue = textPanel.querySelector('[data-text-value]');
   const textSize = textPanel.querySelector('[data-text-size]');
   const textFont = textPanel.querySelector('[data-text-font]');
   const textHelp = textPanel.querySelector('[data-text-help]');
-  const textApply = textPanel.querySelector('[data-text-apply]');
   const boldButton = textPanel.querySelector('[data-text-bold]');
   const italicButton = textPanel.querySelector('[data-text-italic]');
 
@@ -1223,78 +1387,43 @@ export function attachToolbox(root, surface) {
     button.setAttribute('aria-pressed', String(Boolean(pressed)));
     button.classList.toggle('active', Boolean(pressed));
   };
-  const selectedAlignment = () => textPanel.querySelector('[data-text-align].active')?.dataset.textAlign || 'left';
-  const readTextDraft = () => ({
-    testo: textValue.value,
-    colore: surface.textDraft.colore || surface.color,
-    dimensioneTesto: Number(textSize.value),
+  const readTextStyle = () => ({
+    dimensioneTesto: Number(textSize.value) || 24,
     carattere: textFont.value,
     grassetto: boldButton.getAttribute('aria-pressed') === 'true',
     corsivo: italicButton.getAttribute('aria-pressed') === 'true',
-    allineamento: selectedAlignment(),
   });
-  const fillTextPanel = (element = surface.textDraft) => {
-    textValue.value = element.testo || '';
-    textSize.value = String(element.dimensioneTesto || Math.max(16, (element.spessore || 6) * 4));
+  // Applica quel che dicono i comandi: alla casella scelta se c'e', e comunque
+  // alla prossima che si scrivera'.
+  const applyTextStyle = () => {
+    const stile = readTextStyle();
+    surface.setTextDraft(stile);
+    textHelp.textContent = surface.applicaStileTesto(stile)
+      ? 'Casella aggiornata.'
+      : 'Vale per la prossima casella che scrivi. Tocca una casella per cambiarla.';
+  };
+  // Mostra nei comandi lo stile della casella toccata, cosi' si vede subito
+  // com'e' fatta prima di cambiarla.
+  const fillTextPanel = (element) => {
+    textSize.value = String(element.dimensioneTesto || 24);
     if (!textSize.value) textSize.value = '24';
     textFont.value = TEXT_FONTS[element.carattere] ? element.carattere : 'sans';
     setPressed(boldButton, element.grassetto);
     setPressed(italicButton, element.corsivo);
-    textPanel.querySelectorAll('[data-text-align]').forEach((button) => button.classList.toggle('active', button.dataset.textAlign === (element.allineamento || 'left')));
-    if (element.colore) {
-      surface.setColor(element.colore);
-      root.querySelectorAll('[data-color]').forEach((button) => button.classList.toggle('active', button.dataset.color === element.colore));
-    }
-  };
-  const prepareNewText = () => {
-    surface.selectedId = null;
-    textValue.value = '';
-    surface.setTextDraft(readTextDraft());
-    surface.render();
-    textApply.textContent = 'Prepara';
-    textHelp.textContent = 'Scrivi il testo, scegli lo stile e premi Prepara.';
-    textValue.focus();
+    textHelp.textContent = 'Questa e’ la casella scelta: i comandi cambiano lei.';
   };
 
-  surface.onTextRequired = () => {
-    textPanel.hidden = false;
-    textHelp.textContent = 'Prima scrivi il testo nel pannello e premi Prepara.';
-    textValue.focus();
-  };
-  surface.onTextSelection = (element) => {
-    fillTextPanel(element);
-    textApply.textContent = 'Applica';
-    textHelp.textContent = 'Modifica le opzioni e premi Applica. Trascina il testo per spostarlo.';
-  };
+  surface.onTextSelection = (element) => fillTextPanel(element);
 
   textPanel.addEventListener('click', (event) => {
     const button = event.target.closest('button');
     if (!button) return;
-    if (button.hasAttribute('data-text-bold')) setPressed(button, button.getAttribute('aria-pressed') !== 'true');
-    else if (button.hasAttribute('data-text-italic')) setPressed(button, button.getAttribute('aria-pressed') !== 'true');
-    else if (button.dataset.textAlign) {
-      textPanel.querySelectorAll('[data-text-align]').forEach((item) => item.classList.toggle('active', item === button));
-    } else if (button.hasAttribute('data-text-new')) {
-      prepareNewText();
-      return;
-    } else if (button.hasAttribute('data-text-apply')) {
-      const draft = readTextDraft();
-      if (!draft.testo.trim()) {
-        textHelp.textContent = 'Scrivi prima il testo da inserire.';
-        textValue.focus();
-        return;
-      }
-      surface.setTextDraft(draft);
-      if (surface.updateSelectedText(draft)) {
-        textHelp.textContent = 'Modifiche applicate. Puoi trascinare il testo sulla pagina.';
-      } else {
-        textHelp.textContent = 'Ora tocca il punto della pagina in cui vuoi inserire il testo.';
-      }
-      return;
+    if (button.hasAttribute('data-text-bold') || button.hasAttribute('data-text-italic')) {
+      setPressed(button, button.getAttribute('aria-pressed') !== 'true');
+      applyTextStyle();
     }
-    surface.setTextDraft(readTextDraft());
   });
-  textPanel.addEventListener('change', () => surface.setTextDraft(readTextDraft()));
+  textPanel.addEventListener('change', applyTextStyle);
 
   root.addEventListener('click', (event) => {
     const button = event.target.closest('button');
@@ -1302,13 +1431,22 @@ export function attachToolbox(root, surface) {
     if (button.dataset.tool) {
       root.querySelectorAll('[data-tool]').forEach((item) => item.classList.toggle('active', item === button));
       surface.setTool(button.dataset.tool);
-      // niente pannello di scrittura laterale: il testo si scrive in-place sul foglio
-      textPanel.hidden = true;
-      root.classList.remove('text-tool-active');
+      // Il testo si scrive sul foglio; qui restano solo misura e stile, e solo
+      // quando lo strumento Testo e' quello acceso.
+      const scrittura = button.dataset.tool === 'testo';
+      textPanel.hidden = !scrittura;
+      root.classList.toggle('text-tool-active', scrittura);
+      if (scrittura) {
+        textSize.value = String(surface.textDraft.dimensioneTesto || 24);
+        setPressed(boldButton, surface.textDraft.grassetto);
+        setPressed(italicButton, surface.textDraft.corsivo);
+        textHelp.textContent = 'Scegli misura e stile, poi tocca il foglio dove scrivere.';
+      }
     } else if (button.dataset.color) {
       root.querySelectorAll('[data-color]').forEach((item) => item.classList.toggle('active', item === button));
       surface.setColor(button.dataset.color);
-      if (!textPanel.hidden) surface.setTextDraft(readTextDraft());
+      // Col testo acceso il colore vale anche per la casella scelta.
+      if (!textPanel.hidden) surface.applicaStileTesto({ colore: button.dataset.color });
     } else if (button.dataset.width) {
       root.querySelectorAll('[data-width]').forEach((item) => item.classList.toggle('active', item === button));
       surface.setWidth(Number(button.dataset.width));

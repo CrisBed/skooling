@@ -59,11 +59,13 @@ I PDF vengono copiati nell'archivio interno dell'app. Dopo l'importazione il fil
 
 Due dita ingrandiscono e spostano la pagina anche quando il dito disegna: appena appoggi il secondo dito il segno appena iniziato viene tolto, così non restano scarabocchi.
 
-Con lo strumento **Testo**, tocca uno spazio libero e scrivi. Tocca una casella di testo esistente per spostarla; trascina il quadratino nell'angolo per ridimensionarla. La gomma elimina per intero il segno toccato. Ogni modifica si salva automaticamente.
+Con lo strumento **Testo**, tocca uno spazio libero e scrivi. Tocca una casella di testo esistente per spostarla; trascina il quadratino nell'angolo per ridimensionarla. Quando il Testo è acceso, l'astuccio mostra **Dimensione**, **Carattere** e i due pulsanti **G** (grassetto) e **C** (corsivo): valgono per la casella scelta e, se non ce n'è nessuna, per la prossima che scrivi.
+
+La **gomma** toglie solo la parte toccata, non tutto il segno. Vale per i tratti a mano libera e anche per cerchi, quadrati, righe e frecce: la porzione sotto la gomma sparisce e il resto della figura resta al suo posto. Ogni modifica si salva automaticamente.
 
 ### Quaderni
 
-Apri **Quaderni**, scegli **Nuovo quaderno** e indica titolo, materia e foglio a righe o quadretti. Dentro il quaderno puoi aggiungere ed eliminare pagine. I pulsanti in alto esportano la pagina corrente in PNG o tutto il quaderno in PDF.
+Apri **Quaderni**, scegli **Nuovo quaderno** e indica titolo, materia e tipo di foglio: righe, quadretti, bianco, pentagramma o millimetrato. Sul foglio a pentagramma l'astuccio mostra i **Simboli musicali**, raccolti in Chiavi, Note, Pause e Altri segni: ogni segno si vede disegnato sul suo rigo, col nome sotto. Scegli il segno e tocca il rigo dove metterlo. Dentro il quaderno puoi aggiungere ed eliminare pagine. I pulsanti in alto esportano la pagina corrente in PNG o tutto il quaderno in PDF.
 
 Nel quaderno il dito scrive sempre, senza Apple Pencil. **Due dita ingrandiscono e spostano il foglio**: appoggia due dita e allontanale per ingrandire, avvicinale per tornare alla misura naturale, muovile insieme per spostare. Il segno iniziato con un dito solo viene tolto appena arriva il secondo, quindi ingrandire non lascia mai segni per sbaglio. Il pulsante **2 pagine** apre due fogli affiancati, scrivibili tutti e due.
 
@@ -71,9 +73,21 @@ Nel quaderno il dito scrive sempre, senza Apple Pencil. **Due dita ingrandiscono
 
 Apri **Compiti** e scegli **Nuovo compito**. Puoi collegarlo a una pagina di un libro oppure a una pagina di quaderno. Il pulsante con la freccia apre direttamente quel punto.
 
+### Album delle foto
+
+Le foto che non appartengono a un compito stanno in **Album**, raccolte in cartelle.
+
+1. Tocca **Aggiungi foto** e scegli o scatta le foto.
+2. Skooling chiede in quale album metterle e ne propone uno nuovo col nome della data di oggi, per esempio `13-09-2026`.
+3. Cambia quel nome se preferisci, per esempio `Gita a Venezia`, oppure scegli un album che c'è già.
+
+Dentro un album le foto si chiamano 1, 2, 3 e così via. Il pulsante **⋯** su ogni foto permette di darle un nome (`Il cartellone`) o di eliminarla; lo stesso pulsante sulla copertina di un album lo rinomina o lo elimina con tutte le sue foto. Quando sei dentro un album, le foto nuove entrano lì senza altre domande.
+
+Le foto salvate prima che esistessero gli album vengono raccolte da sole in un album per ogni giornata, col nome della data in cui erano state scattate.
+
 ## Backup e ripristino
 
-Apri **Impostazioni** e tocca **Esporta backup**. Il file `.skooling` contiene libri, copertine, annotazioni, segnalibri, quaderni, pagine, compiti e impostazioni.
+Apri **Impostazioni** e tocca **Esporta backup**. Il file `.skooling` contiene libri, copertine, annotazioni, segnalibri, quaderni, pagine, compiti, album, foto e impostazioni.
 
 Per ripristinarlo su un dispositivo pulito:
 

@@ -125,12 +125,17 @@ h2 { margin: 0; font-size: 21px; line-height: 1.15; }
 .music-palette { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
 .music-palette > strong { display: block; font-size: 14px; }
 .music-hint { margin: 5px 0 11px; color: var(--muted); font-size: 12px; line-height: 1.35; }
-.music-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
-.music-grid button { min-height: 56px; display: grid; place-items: center; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: white; }
-.music-grid button.active { border-color: var(--blue); background: var(--blue-soft); }
-.music-grid canvas { width: 34px; height: 46px; }
+.music-grid { display: grid; gap: 4px; }
+.music-group { margin: 9px 0 1px; color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.music-group:first-child { margin-top: 0; }
+.music-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.music-row button { display: grid; justify-items: center; gap: 2px; padding: 4px 1px 5px; border: 1px solid var(--line); border-radius: 12px; background: white; }
+.music-row button.active { border-color: var(--blue); background: var(--blue-soft); }
+.music-row button span { color: var(--ink); font-size: 10px; font-weight: 700; line-height: 1.1; text-align: center; }
+.music-preview { display: block; width: 54px; height: 58px; }
 
 /* Album delle attivita' */
+.heading-buttons { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .album-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 20px; }
 .album-card { position: relative; min-width: 0; }
 .album-open { width: 100%; padding: 0; border: 0; background: transparent; display: block; }
@@ -259,19 +264,13 @@ input[role="switch"]:checked::after { transform: translateX(22px); }
 .toolbox.text-tool-active .widths { display: none; }
 .toolbox.text-tool-active .palette { margin-bottom: 9px; }
 .toolbox.text-tool-active .palette::before { content: "Colore testo"; grid-column: 1 / -1; margin-bottom: 3px; color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
-.text-panel { margin-top: 12px; padding: 13px; display: grid; gap: 11px; border: 1px solid #bdcbea; border-radius: 14px; background: #f7f9ff; }
+.text-panel { margin-top: 12px; padding: 13px; display: grid; gap: 10px; border: 1px solid #bdcbea; border-radius: 14px; background: #f7f9ff; }
 .text-panel label { display: grid; gap: 5px; color: var(--muted); font-size: 11px; font-weight: 800; }
-.text-panel textarea, .text-panel select { width: 100%; min-height: 40px; border: 1px solid var(--line); border-radius: 9px; padding: 8px; background: white; }
-.text-panel textarea { min-height: 70px; resize: vertical; color: var(--ink); font-size: 14px; font-weight: 500; }
-.text-control-row { display: grid; grid-template-columns: .8fr 1.2fr; gap: 8px; }
-.text-style-buttons { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
-.text-style-buttons button, .text-actions button { min-height: 38px; border: 1px solid var(--line); border-radius: 9px; background: white; font-size: 13px; font-weight: 800; }
+.text-panel select { width: 100%; min-height: 44px; border: 1px solid var(--line); border-radius: 9px; padding: 8px; background: white; color: var(--ink); font-size: 15px; font-weight: 600; }
+.text-style-buttons { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.text-style-buttons button { min-height: 46px; border: 1px solid var(--line); border-radius: 9px; background: white; font-size: 18px; font-weight: 800; }
 .text-style-buttons button.active { border-color: #82a4f8; background: var(--blue-soft); color: var(--blue-dark); }
-.text-style-buttons button[data-text-align="left"] { text-align: left; }
-.text-style-buttons button[data-text-align="right"] { text-align: right; }
-.text-help { min-height: 32px; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
-.text-actions { display: grid; grid-template-columns: 1fr 1.25fr; gap: 6px; }
-.text-actions .primary-mini { border-color: var(--blue); background: var(--blue); color: white; }
+.text-help { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
 .history-buttons { margin-top: 14px; }
 .history-buttons button { flex: 1; }
 .loading-card { position: absolute; z-index: 5; left: 50%; top: 20px; transform: translateX(-50%); display: flex; gap: 10px; align-items: center; padding: 12px 18px; border-radius: 14px; background: #fff; box-shadow: var(--shadow); font-size: 13px; font-weight: 750; }

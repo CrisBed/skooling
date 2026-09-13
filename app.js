@@ -2,7 +2,7 @@
 import { DB, createId } from './db.js';
 import { PDFViewer, extractPdfCover } from './pdf-viewer.js';
 import { NotebookManager } from './quaderni.js';
-import { AlbumManager, ridimensionaFoto } from './album.js';
+import { AlbumManager, ridimensionaFoto, sistemaFotoSenzaAlbum } from './album.js';
 import { cercaNeiLibri, normalizza } from './ricerca.js';
 import { downloadBlob } from './strumenti.js';
 
@@ -555,6 +555,9 @@ async function start() {
     const fingerSetting = await DB.get('impostazioni', 'disegna-dito');
     document.querySelector('#global-finger-draw').checked = Boolean(fingerSetting?.valore);
     PDFViewer.setDrawWithFinger(Boolean(fingerSetting?.valore));
+    // Le foto salvate prima degli album vanno messe in un album per giornata,
+    // altrimenti sparirebbero dall'elenco pur restando nell'archivio.
+    await sistemaFotoSenzaAlbum();
     await Promise.all([renderLibrary(), notebooks.renderList(), renderTasks(), album.renderList(), updateStorage()]);
     await registerServiceWorker();
   } catch (error) {

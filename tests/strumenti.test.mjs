@@ -74,7 +74,9 @@ test('toccando un punto vuoto col testo si crea la casella lì, col colore e la 
   const surface = new DrawingSurface(makeCanvas());
   surface.setTool('testo');
   surface.setColor('#8b5cf6');
-  surface.setWidth(10);
+  // Misura e stile vengono dai comandi dell'astuccio, non piu' dallo spessore
+  // della penna: prima erano tre misure fisse e nessun modo di cambiarle.
+  surface.setTextDraft({ dimensioneTesto: 40, grassetto: true, corsivo: true });
 
   surface.pointerDown({
     pointerId: 1, pointerType: 'mouse', clientX: 200, clientY: 300,
@@ -88,7 +90,9 @@ test('toccando un punto vuoto col testo si crea la casella lì, col colore e la 
   assert.equal(el.x, 0.2);
   assert.equal(el.y, 0.3);
   assert.equal(el.colore, '#8b5cf6');
-  assert.equal(el.dimensioneTesto, 60); // spessore grande -> testo grande
+  assert.equal(el.dimensioneTesto, 40);
+  assert.equal(el.grassetto, true);
+  assert.equal(el.corsivo, true);
 });
 
 test('il testo selezionato può essere riscritto e riformattato', () => {
@@ -602,4 +606,160 @@ test('una sottolineatura piatta si sposta senza schiacciarsi', () => {
   const nuovo = ridimensionaElemento({ ...riga }, riga, { sinistra: 0.2, destra: 1.0, alto: 0.3, basso: 0.3 });
   assert.equal(+(nuovo.x2 - nuovo.x1).toFixed(3), 0.8, 'si allunga');
   assert.equal(nuovo.y1, nuovo.y2, 'e resta dritta');
+});
+
+// ---- Gomma sulle forme geometriche ---------------------------------------
+// Prima la gomma toglieva l'intera figura al primo tocco, perche' un cerchio e'
+// un oggetto solo. Ora la figura toccata viene riscritta nei tratti che la
+// disegnano e si cancella a pezzi come un segno di penna.
+
+function fogliaConGomma(elements, larghezza = 10) {
+  const surface = new DrawingSurface(makeCanvas());
+  surface.elements = elements;
+  surface.history.reset(surface.elements);
+  surface.setTool('gomma');
+  surface.setWidth(larghezza);
+  return surface;
+}
+
+function tocca(surface, clientX, clientY, pointerId = 90) {
+  surface.pointerDown({ pointerId, pointerType: 'mouse', clientX, clientY, pressure: 0.5, preventDefault() {} });
+}
+
+test('la gomma apre un varco nel cerchio e lascia in piedi il resto', () => {
+  const surface = fogliaConGomma([{
+    id: 'cerchio-1', tipo: 'cerchio', colore: '#db3a34', spessore: 5, timestamp: 1,
+    x1: 0.2, y1: 0.2, x2: 0.8, y2: 0.8,
+  }]);
+
+  // il punto piu' a destra del cerchio: x = 0.8, y = 0.5
+  tocca(surface, 800, 500);
+
+  assert.ok(surface.elements.length >= 1, 'il cerchio non sparisce tutto');
+  assert.ok(surface.elements.every((element) => element.tipo === 'penna'), 'quel che resta e’ fatto di tratti');
+  const punti = surface.elements.flatMap((element) => element.punti);
+  assert.ok(punti.length > 40, 'resta quasi tutta la circonferenza');
+  // nel varco non c'e' piu' niente
+  assert.equal(punti.some((punto) => Math.hypot(punto.x - 0.8, punto.y - 0.5) < 0.012), false);
+  // il lato opposto e' intatto
+  assert.equal(punti.some((punto) => Math.hypot(punto.x - 0.2, punto.y - 0.5) < 0.01), true);
+});
+
+test('la gomma dentro al cerchio non lo tocca: si cancella il bordo, non l’aria', () => {
+  const cerchio = {
+    id: 'cerchio-2', tipo: 'cerchio', colore: '#db3a34', spessore: 5, timestamp: 1,
+    x1: 0.2, y1: 0.2, x2: 0.8, y2: 0.8,
+  };
+  const surface = fogliaConGomma([cerchio]);
+
+  tocca(surface, 500, 500); // il centro, dove non c'e' inchiostro
+
+  assert.deepEqual(surface.elements, [cerchio], 'il cerchio resta l’oggetto intero che era');
+});
+
+test('del quadrato si toglie solo il lato toccato', () => {
+  const surface = fogliaConGomma([{
+    id: 'quadrato-1', tipo: 'rettangolo', colore: '#1f2937', spessore: 5, timestamp: 1,
+    x1: 0.2, y1: 0.2, x2: 0.8, y2: 0.8,
+  }]);
+
+  tocca(surface, 500, 200); // in mezzo al lato di sopra
+
+  const punti = surface.elements.flatMap((element) => element.punti);
+  assert.equal(punti.some((punto) => Math.abs(punto.y - 0.2) < 0.005 && Math.abs(punto.x - 0.5) < 0.012), false, 'il varco e’ aperto');
+  for (const angolo of [[0.2, 0.2], [0.8, 0.2], [0.8, 0.8], [0.2, 0.8]]) {
+    assert.ok(
+      punti.some((punto) => Math.hypot(punto.x - angolo[0], punto.y - angolo[1]) < 0.01),
+      `l’angolo ${angolo} resta al suo posto`,
+    );
+  }
+});
+
+test('della freccia si toglie l’asta e la punta resta', () => {
+  const surface = fogliaConGomma([{
+    id: 'freccia-1', tipo: 'freccia', colore: '#15956d', spessore: 5, timestamp: 1,
+    x1: 0.1, y1: 0.5, x2: 0.9, y2: 0.5,
+  }]);
+
+  tocca(surface, 400, 500); // sull'asta, lontano dalla punta
+
+  const puntiVicinoAllaPunta = surface.elements
+    .flatMap((element) => element.punti)
+    .filter((punto) => punto.x > 0.86);
+  assert.ok(puntiVicinoAllaPunta.length >= 3, 'le due barbe della punta sono ancora li’');
+  const nelVarco = surface.elements
+    .flatMap((element) => element.punti)
+    .some((punto) => Math.abs(punto.x - 0.4) < 0.012 && Math.abs(punto.y - 0.5) < 0.012);
+  assert.equal(nelVarco, false);
+});
+
+test('la riga si spezza in due invece di sparire', () => {
+  const surface = fogliaConGomma([{
+    id: 'riga-1', tipo: 'linea', colore: '#2457d6', spessore: 5, timestamp: 1,
+    x1: 0.1, y1: 0.3, x2: 0.9, y2: 0.3,
+  }]);
+
+  tocca(surface, 500, 300);
+
+  assert.equal(surface.elements.length, 2);
+  assert.ok(surface.elements[0].punti.at(-1).x < 0.5);
+  assert.ok(surface.elements[1].punti[0].x > 0.5);
+});
+
+test('quel che resta di una forma tagliata tiene colore e spessore', () => {
+  const surface = fogliaConGomma([{
+    id: 'cerchio-3', tipo: 'cerchio', colore: '#f0b429', spessore: 10, timestamp: 7,
+    x1: 0.2, y1: 0.2, x2: 0.8, y2: 0.8,
+  }]);
+
+  tocca(surface, 800, 500);
+
+  for (const element of surface.elements) {
+    assert.equal(element.colore, '#f0b429');
+    assert.equal(element.spessore, 10);
+  }
+});
+
+// ---- Dimensione, grassetto e corsivo del testo ----------------------------
+
+test('i comandi del testo cambiano la casella scelta senza toccare quel che c’e’ scritto', () => {
+  const surface = new DrawingSurface(makeCanvas());
+  surface.elements = [{
+    id: 'testo-9', tipo: 'testo', testo: 'Compito di storia', x: 0.1, y: 0.1, w: 0.4, h: 0.2,
+    colore: '#2457d6', dimensioneTesto: 24, carattere: 'sans',
+    grassetto: false, corsivo: false, allineamento: 'left', timestamp: 1,
+  }];
+  surface.history.reset(surface.elements);
+  surface.selectedId = 'testo-9';
+
+  assert.equal(surface.applicaStileTesto({ dimensioneTesto: 56, grassetto: true }), true);
+
+  const el = surface.elements[0];
+  assert.equal(el.testo, 'Compito di storia');
+  assert.equal(el.dimensioneTesto, 56);
+  assert.equal(el.grassetto, true);
+  assert.equal(el.corsivo, false, 'quel che non si passa non si tocca');
+});
+
+test('senza casella scelta i comandi del testo non hanno su cosa agire', () => {
+  const surface = new DrawingSurface(makeCanvas());
+  surface.elements = [{ id: 'tratto', tipo: 'penna', punti: [{ x: 0.1, y: 0.1 }], colore: '#000', spessore: 2 }];
+  surface.history.reset(surface.elements);
+
+  assert.equal(surface.applicaStileTesto({ dimensioneTesto: 56 }), false);
+  assert.equal(surface.testoCorrente(), null);
+});
+
+test('il testo disegnato segue grassetto e corsivo della casella', () => {
+  const scritte = [];
+  const context = {
+    save() {}, restore() {}, setLineDash() {}, strokeRect() {}, fillRect() {},
+    measureText(value) { return { width: value.length * 8 }; },
+    fillText(value) { scritte.push(this.font); },
+  };
+  drawElement(context, {
+    tipo: 'testo', testo: 'Ciao', x: 0.1, y: 0.1, w: 0.5, h: 0.2,
+    dimensioneTesto: 40, carattere: 'serif', grassetto: true, corsivo: true, allineamento: 'left',
+  }, 1000, 1000);
+  assert.match(scritte[0], /^italic 700 40px/);
 });

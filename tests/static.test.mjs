@@ -183,3 +183,30 @@ test('il segnaposto di lettura non riscrive il libro intero', async () => {
   assert.doesNotMatch(lettore, /DB\.put\('libri'/, 'il lettore non riscrive mai il record del libro');
   assert.match(lettore, /DB\.put\('letture'/, 'salva solo il segnaposto');
 });
+
+test('l’album ha due livelli: gli album e le foto dentro, con il ritorno indietro', async () => {
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  assert.match(html, /id="album-back"/, 'dentro un album serve il modo di tornare all’elenco');
+  assert.match(html, /id="album-dialog"/, 'va chiesto in quale album mettere le foto');
+  assert.match(html, /id="album-target"/, 'si sceglie fra un album nuovo e quelli che ci sono');
+  assert.match(html, /id="album-name"/, 'il nome del nuovo album si puo’ cambiare subito');
+});
+
+test('gli album entrano nel backup, e un backup vecchio senza album si importa lo stesso', async () => {
+  const { STORE_NAMES, STORE_NAMES_STORICI } = await import('../db.js');
+  assert.ok(STORE_NAMES.includes('album'), 'un backup deve portarsi via anche gli album');
+  assert.ok(!STORE_NAMES_STORICI.includes('album'), 'un backup fatto prima degli album non va rifiutato');
+});
+
+test('lo strumento testo ha i comandi di dimensione, grassetto e corsivo', async () => {
+  const strumenti = await readFile(new URL('../strumenti.js', import.meta.url), 'utf8');
+  for (const comando of ['data-text-size', 'data-text-bold', 'data-text-italic']) {
+    assert.match(strumenti, new RegExp(comando), `manca il comando ${comando}`);
+  }
+  assert.match(strumenti, /applicaStileTesto/, 'i comandi devono poter cambiare la casella scelta');
+});
+
+test('la gomma sa tagliare anche cerchi, quadrati, righe e frecce', async () => {
+  const { FORME_TAGLIABILI } = await import('../strumenti.js');
+  assert.deepEqual([...FORME_TAGLIABILI].sort(), ['cerchio', 'freccia', 'linea', 'rettangolo']);
+});

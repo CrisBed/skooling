@@ -1,6 +1,6 @@
 // Persistenza locale di Skooling. Nessun dato lascia il dispositivo.
 export const DB_NAME = 'skooling-db';
-export const DB_VERSION = 4;
+export const DB_VERSION = 5;
 export const STORE_NAMES = [
   'libri',
   'annotazioni',
@@ -9,6 +9,7 @@ export const STORE_NAMES = [
   'paginequaderno',
   'compiti',
   'impostazioni',
+  'album',
   'foto',
   'letture',
 ];
@@ -40,6 +41,10 @@ const STORE_OPTIONS = {
   paginequaderno: { keyPath: 'id' },
   compiti: { keyPath: 'id' },
   impostazioni: { keyPath: 'id' },
+  // Gli album delle fotografie: una cartella con un nome, di solito la data del
+  // giorno in cui si e' scattato. Le foto stanno nell'archivio qui sotto e
+  // dicono a quale album appartengono.
+  album: { keyPath: 'id' },
   foto: { keyPath: 'id' },
   // A che pagina si e' arrivati, tenuto a parte dal libro. Sta qui e non dentro
   // il libro perche' salvare il segnaposto dentro il libro vuol dire riscrivere

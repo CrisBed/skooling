@@ -91,13 +91,16 @@
 
       <section id="album" class="view" aria-labelledby="album-title">
         <div class="view-heading">
-          <div><p class="eyebrow">Laboratori e giornate di classe</p><h1 id="album-title">Album</h1><p class="subtitle">Le foto che non sono legate a un compito restano qui.</p></div>
-          <label class="button primary file-button">
-            <input id="album-input" type="file" accept="image/*" capture="environment" multiple hidden>
-            <span aria-hidden="true">＋</span> Aggiungi foto
-          </label>
+          <div><p class="eyebrow" id="album-eyebrow">Laboratori e giornate di classe</p><h1 id="album-title">Album</h1><p class="subtitle" id="album-subtitle">Ogni gita, festa o laboratorio ha il suo album.</p></div>
+          <div class="heading-buttons">
+            <button id="album-back" class="button secondary" type="button" hidden><span aria-hidden="true">←</span> Tutti gli album</button>
+            <label class="button primary file-button">
+              <input id="album-input" type="file" accept="image/*" capture="environment" multiple hidden>
+              <span aria-hidden="true">＋</span> Aggiungi foto
+            </label>
+          </div>
         </div>
-        <div id="album-empty" class="empty-state"><div class="empty-photo" aria-hidden="true">✻</div><h2>Ancora nessuna foto</h2><p>Scatta una foto di un laboratorio o di un lavoro di classe: resta qui nel tempo.</p></div>
+        <div id="album-empty" class="empty-state"><div class="empty-photo" aria-hidden="true">✻</div><h2>Ancora nessun album</h2><p>Tocca “Aggiungi foto”: l’album nasce col nome della data di oggi, e lo puoi rinominare come vuoi.</p></div>
         <div id="album-grid" class="album-grid" aria-live="polite"></div>
       </section>
 
@@ -228,6 +231,16 @@
       <p id="bookmark-dialog-page" class="small-copy"></p>
       <label>Nota<input id="bookmark-note" maxlength="120" placeholder="Es. compito di matematica da fare"></label>
       <div class="dialog-actions"><button type="button" data-dialog-close class="button secondary">Annulla</button><button class="button primary" value="default">Salva segnalibro</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="album-dialog">
+    <form method="dialog" id="album-form" class="dialog-form">
+      <div class="dialog-heading"><div><p class="eyebrow">Foto</p><h2>In quale album?</h2></div><button type="button" data-dialog-close class="icon-button" aria-label="Chiudi">×</button></div>
+      <p id="album-dialog-count" class="small-copy"></p>
+      <label>Album<select id="album-target"></select></label>
+      <label id="album-name-row">Nome del nuovo album<input id="album-name" maxlength="60" placeholder="Es. Gita a Venezia"></label>
+      <div class="dialog-actions"><button type="button" data-dialog-close class="button secondary">Annulla</button><button class="button primary" value="default">Metti qui le foto</button></div>
     </form>
   </dialog>
 

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SEGNI_MUSICALI, segnoValido, ingombroSegno, disegnaSegnoMusicale } from '../musica.js';
+import { SEGNI_MUSICALI, GRUPPI_MUSICALI, ANTEPRIMA, segnoValido, ingombroSegno, disegnaSegnoMusicale, disegnaAnteprimaSegno, unitaAnteprima, appoggioAnteprima } from '../musica.js';
 import { agganciaAlRigo, RIGO } from '../quaderni.js';
 import { riquadroElemento, hitTestElement, spostaElemento } from '../strumenti.js';
 
@@ -96,4 +96,61 @@ test('l’ingombro viene dalle misure vere del font', () => {
   assert.ok(pausaSemibreve.sotto > pausaSemibreve.sopra, 'la pausa di semibreve sta appesa sotto la riga');
   assert.ok(pausaMinima.sopra > pausaMinima.sotto, 'quella di minima sta appoggiata sopra');
   assert.deepEqual(ingombroSegno('sconosciuto'), { sinistra: 1, destra: 1, sopra: 1, sotto: 1 });
+});
+
+// ---- L'anteprima nel selettore -------------------------------------------
+// Prima i riquadri restavano vuoti (il font non era ancora pronto quando si
+// disegnavano) e i segni erano comunque minuscoli. Qui si verifica che ogni
+// segno stia dentro il suo riquadro e ci stia grande.
+
+function telaAnteprima() {
+  const contesto = telaFinta();
+  contesto.clearRect = () => {};
+  contesto.setTransform = () => {};
+  return {
+    width: 0, height: 0,
+    getContext: () => contesto,
+    setTransform: undefined,
+    contesto,
+  };
+}
+
+test('ogni segno del selettore sta dentro il riquadro, righe del rigo comprese', () => {
+  const { larghezza, altezza } = ANTEPRIMA;
+  for (const segno of SEGNI_MUSICALI) {
+    const ingombro = ingombroSegno(segno.chiave);
+    const { unita, y } = appoggioAnteprima(segno.chiave, larghezza, altezza);
+    const alto = y - Math.max(ingombro.sopra, 2) * unita;
+    const basso = y + Math.max(ingombro.sotto, 2) * unita;
+    assert.ok(alto >= -0.01, `${segno.chiave} esce dal bordo di sopra (${alto})`);
+    assert.ok(basso <= altezza + 0.01, `${segno.chiave} esce dal bordo di sotto (${basso})`);
+    const largo = (ingombro.sinistra + ingombro.destra) * unita;
+    assert.ok(largo <= larghezza, `${segno.chiave} e' piu' largo del riquadro (${largo})`);
+  }
+});
+
+test('nel selettore i segni si vedono grandi, non piu’ a diciotto pixel', () => {
+  // Prima ogni segno era disegnato con unita' 9 su una tela mostrata a meta':
+  // 4,5 pixel di passo del rigo, cioe' un segno alto meno di venti pixel.
+  for (const segno of SEGNI_MUSICALI) {
+    const unita = unitaAnteprima(segno.chiave);
+    assert.ok(unita >= 6.5, `${segno.chiave} resta troppo piccolo (unita ${unita})`);
+  }
+});
+
+test('l’anteprima disegna prima il rigo e poi il segno', () => {
+  const tela = telaAnteprima();
+  const esito = disegnaAnteprimaSegno(tela, 'pausa-semibreve');
+  assert.ok(esito, 'l’anteprima deve dire dove ha appoggiato il segno');
+  assert.equal(tela.width, ANTEPRIMA.larghezza * 2, 'la tela e’ al doppio per non sgranare');
+  const tratti = tela.contesto.fatte.filter((voce) => voce === 'tratto').length;
+  assert.equal(tratti, 5, 'le cinque righe del rigo che fanno da riferimento');
+  assert.ok(tela.contesto.fatte.some((voce) => voce.startsWith('glifo:')), 'e poi il segno vero');
+});
+
+test('ogni segno del selettore ha un nome scritto sotto', () => {
+  for (const segno of SEGNI_MUSICALI) {
+    assert.ok(segno.breve && segno.breve.length <= 11, `${segno.chiave} non ha un nome corto da scrivere sotto`);
+    assert.ok(GRUPPI_MUSICALI.some((gruppo) => gruppo.chiave === segno.gruppo), `${segno.chiave} non sta in nessun gruppo`);
+  }
 });

@@ -1,7 +1,7 @@
 // Incrementa questo nome dopo ogni modifica ai file dell'app.
 // Lo fa da solo pubblica.sh: il nome nuovo è ciò che porta la versione nuova
 // sul dispositivo di Gabriel, senza che lui debba reinstallare nulla.
-const CACHE_NAME = 'skooling-v21';
+const CACHE_NAME = 'skooling-v22';
 const STATIC_FILES = [
   './',
   './index.html',
@@ -23,6 +23,12 @@ const STATIC_FILES = [
   './icons/icon-512.png',
   './vendor/SkoolingMusica.woff2',
   './vendor/pdf.mjs',
+  // I decodificatori WebAssembly di PDF.js. Vanno tenuti in cache come tutto il
+  // resto: senza di loro, offline, le immagini CCITTFax e JBIG2 dei libri
+  // scansionati restano bianche senza dire niente.
+  './vendor/jbig2.wasm',
+  './vendor/openjpeg.wasm',
+  './vendor/qcms_bg.wasm',
   './vendor/pdf.worker.mjs'
 ];
 

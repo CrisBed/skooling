@@ -7,10 +7,20 @@ import { paginaSinistraLibro, paginaDestraLibro, coppiaPrecedenteLibro, coppiaSu
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = './vendor/pdf.worker.mjs';
 
+// Dove PDF.js va a prendere i suoi decodificatori WebAssembly. Non e' un
+// dettaglio: dalla versione 6 il decodificatore di CCITTFax e di JBIG2 non e'
+// piu' scritto in JavaScript, sta dentro vendor/jbig2.wasm. Senza questa riga
+// PDF.js non trova il modulo, non riesce a decodificare quelle immagini e le
+// SALTA IN SILENZIO, lasciando il bianco al loro posto: e' esattamente il
+// difetto visto sui libri passati nel CZUR, dove ogni pagina e' una scansione
+// di fondo piu' un livello in primo piano ritagliato da una maschera CCITT.
+// La cartella finisce con la barra: PDF.js ci attacca dietro il nome del file.
+const WASM_PDFJS = './vendor/';
+
 function waitFrame() { return new Promise((resolve) => requestAnimationFrame(resolve)); }
 
 export async function extractPdfCover(blob) {
-  const task = pdfjsLib.getDocument({ data: await blob.arrayBuffer() });
+  const task = pdfjsLib.getDocument({ data: await blob.arrayBuffer(), wasmUrl: WASM_PDFJS });
   const pdf = await task.promise;
   try {
     const page = await pdf.getPage(1);
@@ -180,7 +190,7 @@ class Reader {
     document.querySelector('#reader-subject').textContent = this.book.materia;
     this.loading.hidden = false;
     try {
-      const task = pdfjsLib.getDocument({ data: await libro.blob.arrayBuffer() });
+      const task = pdfjsLib.getDocument({ data: await libro.blob.arrayBuffer(), wasmUrl: WASM_PDFJS });
       const documento = await task.promise;
       if (sessione !== this.sessione) { await task.destroy().catch(() => {}); return; }
       this.caricamento = task;

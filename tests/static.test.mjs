@@ -41,7 +41,7 @@ test('nessun file di consegna contiene segnaposto di sviluppo', async () => {
     .filter((entry) => entry.isFile() && !diServizio(`${entry.parentPath}/`))
     .map((entry) => join(entry.parentPath, entry.name));
   for (const file of files) {
-    if (/\.(png|mjs)$/.test(file) && file.includes('/vendor/')) continue;
+    if (/\.(png|mjs|wasm|woff2)$/.test(file) && file.includes('/vendor/')) continue;
     const source = await readFile(file, 'utf8').catch(() => '');
     assert.doesNotMatch(source, /\b(?:TBD|FIXME)\b|(?:\/\/|<!--)\s*TODO\b/i, file);
   }
@@ -209,4 +209,34 @@ test('lo strumento testo ha i comandi di dimensione, grassetto e corsivo', async
 test('la gomma sa tagliare anche cerchi, quadrati, righe e frecce', async () => {
   const { FORME_TAGLIABILI } = await import('../strumenti.js');
   assert.deepEqual([...FORME_TAGLIABILI].sort(), ['cerchio', 'freccia', 'linea', 'rettangolo']);
+});
+
+test('i decodificatori WebAssembly di PDF.js viaggiano con l\u2019app', async () => {
+  // Dalla versione 6 PDF.js NON ha piu\u2019 un decodificatore CCITTFax e JBIG2
+  // scritto in JavaScript: sta in vendor/jbig2.wasm, e lo carica da `wasmUrl`.
+  // Senza quel modulo PDF.js non solleva un errore, SALTA l\u2019immagine in
+  // silenzio e lascia il bianco. Nei libri passati nel CZUR ogni pagina e\u2019 una
+  // scansione di fondo piu\u2019 un primo piano ritagliato da una maschera CCITT,
+  // quindi il difetto colpisce quasi tutte le pagine illustrate.
+  const attesi = ['jbig2.wasm', 'openjpeg.wasm', 'qcms_bg.wasm'];
+  for (const nome of attesi) {
+    const info = await stat(new URL(`../vendor/${nome}`, import.meta.url));
+    assert.ok(info.size > 50_000, `vendor/${nome} manca o e\u2019 troncato`);
+  }
+  const lettore = await readFile(new URL('../pdf-viewer.js', import.meta.url), 'utf8');
+  const ricerca = await readFile(new URL('../ricerca.js', import.meta.url), 'utf8');
+  for (const [nome, sorgente] of [['pdf-viewer.js', lettore], ['ricerca.js', ricerca]]) {
+    const aperture = sorgente.match(/getDocument\(/g) || [];
+    const conWasm = sorgente.match(/getDocument\(\{[^}]*wasmUrl/g) || [];
+    assert.equal(conWasm.length, aperture.length,
+      `in ${nome} qualche getDocument apre un PDF senza wasmUrl`);
+    assert.match(sorgente, /wasmUrl:\s*(WASM_PDFJS|'\.\/vendor\/')/, `in ${nome} wasmUrl non punta a vendor/`);
+  }
+  assert.match(lettore, /const WASM_PDFJS = '\.\/vendor\/';/, 'la cartella deve finire con la barra');
+  const sw = await readFile(new URL('../sw.js', import.meta.url), 'utf8');
+  for (const nome of attesi) {
+    assert.match(sw, new RegExp(nome.replaceAll('.', '\\.')), `${nome} non e\u2019 in cache, offline tornerebbe il bianco`);
+  }
+  const licenze = await readFile(new URL('../LICENZE.md', import.meta.url), 'utf8');
+  assert.match(licenze, /JBIG2/i, 'la licenza del decodificatore va citata');
 });

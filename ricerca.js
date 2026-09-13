@@ -12,7 +12,9 @@ import { DB } from './db.js';
 async function apriDocumento(blob) {
   const pdfjsLib = await import('./vendor/pdf.mjs');
   pdfjsLib.GlobalWorkerOptions.workerSrc = './vendor/pdf.worker.mjs';
-  return pdfjsLib.getDocument({ data: await blob.arrayBuffer() });
+  // Anche qui serve wasmUrl, per lo stesso motivo spiegato in pdf-viewer.js:
+  // senza il modulo WebAssembly le immagini CCITTFax non si decodificano.
+  return pdfjsLib.getDocument({ data: await blob.arrayBuffer(), wasmUrl: './vendor/' });
 }
 
 // Le due matrici di PDF.js moltiplicate fra loro: sei numeri, che si fanno qui

@@ -25,7 +25,8 @@
     </header>
 
     <nav class="main-nav" aria-label="Sezioni principali">
-      <button type="button" data-go="libreria" class="active"><span aria-hidden="true">▤</span><span>Libreria</span></button>
+      <button type="button" data-go="oggi" class="active"><span aria-hidden="true">☀</span><span>Oggi</span></button>
+      <button type="button" data-go="libreria"><span aria-hidden="true">▤</span><span>Libreria</span></button>
       <button type="button" data-go="quaderni"><span aria-hidden="true">▧</span><span>Quaderni</span></button>
       <button type="button" data-go="compiti"><span aria-hidden="true">✓</span><span>Compiti</span></button>
       <button type="button" data-go="album"><span aria-hidden="true">✻</span><span>Album</span></button>
@@ -33,7 +34,33 @@
     </nav>
 
     <main id="main-content">
-      <section id="libreria" class="view active" aria-labelledby="libreria-title">
+      <section id="oggi" class="view active" aria-labelledby="oggi-title">
+        <div class="view-heading">
+          <div><p class="eyebrow" id="oggi-eyebrow">Oggi</p><h1 id="oggi-title">La tua giornata</h1><p class="subtitle" id="oggi-subtitle">Le materie di oggi e i libri che servono.</p></div>
+          <div class="heading-buttons">
+            <button class="button secondary" type="button" data-go="orario"><span aria-hidden="true">🕘</span> L’orario</button>
+            <button class="button secondary" type="button" data-go="materie-libri"><span aria-hidden="true">▤</span> Libri per materia</button>
+          </div>
+        </div>
+        <div class="oggi-griglia">
+          <article class="oggi-blocco">
+            <span class="card-label">Le ore di oggi</span>
+            <div id="oggi-materie" class="ora-elenco" aria-live="polite"></div>
+          </article>
+          <article class="oggi-blocco">
+            <span class="card-label">I libri di oggi</span>
+            <p class="small-copy">Un tocco e il libro si apre.</p>
+            <div id="oggi-libri" class="libro-riga" aria-live="polite"></div>
+          </article>
+          <article class="oggi-blocco zaino">
+            <span class="card-label">Prepara lo zaino</span>
+            <h2 id="zaino-titolo">Domani</h2>
+            <div id="zaino-libri" class="libro-riga" aria-live="polite"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="libreria" class="view" aria-labelledby="libreria-title">
         <div class="view-heading">
           <div>
             <p class="eyebrow">Il tuo scaffale</p>
@@ -86,6 +113,10 @@
               <div><p class="eyebrow">Prossimi giorni</p><h1 id="compiti-title">Compiti</h1><p class="subtitle">Prima le scadenze più vicine, senza sorprese.</p></div>
               <button id="new-task" class="button primary" type="button"><span aria-hidden="true">＋</span> Nuovo compito</button>
             </div>
+            <div class="giorni-scelta">
+              <p class="eyebrow">Scrivi un compito per…</p>
+              <div id="giorni-prossimi" class="giorni-prossimi" role="group" aria-label="Scegli il giorno di consegna"></div>
+            </div>
             <div class="task-tabs" role="group" aria-label="Filtra compiti">
               <button type="button" class="chip active" data-task-filter="todo">Da fare</button>
               <button type="button" class="chip" data-task-filter="all">Tutti</button>
@@ -93,6 +124,13 @@
             </div>
             <div id="task-empty" class="empty-state compact"><div class="empty-check" aria-hidden="true">✓</div><h2>Tutto tranquillo</h2><p>I nuovi compiti compariranno qui in ordine di consegna.</p></div>
             <div id="task-list" class="task-list" aria-live="polite"></div>
+          </div>
+          <div class="diario-orario">
+            <div class="settimana-testa">
+              <p class="eyebrow">L’orario della settimana</p>
+              <button class="button secondary small" type="button" data-go="orario">Cambia l’orario</button>
+            </div>
+            <div id="orario-settimana" class="orario-settimana" aria-live="polite"></div>
           </div>
         </div>
       </section>
@@ -110,6 +148,26 @@
         </div>
         <div id="album-empty" class="empty-state"><div class="empty-photo" aria-hidden="true">✻</div><h2>Ancora nessun album</h2><p>Tocca “Aggiungi foto”: l’album nasce col nome della data di oggi, e lo puoi rinominare come vuoi.</p></div>
         <div id="album-grid" class="album-grid" aria-live="polite"></div>
+      </section>
+
+      <section id="orario" class="view" aria-labelledby="orario-title">
+        <div class="view-heading">
+          <div><p class="eyebrow">Come sono fatte le giornate</p><h1 id="orario-title">L’orario</h1><p class="subtitle">Cambia l’ora che è cambiata: l’app rifà da sola le materie e i libri di ogni giornata.</p></div>
+          <div class="heading-buttons">
+            <button id="orario-ripristina" class="button secondary" type="button">Rimetti quello della scuola</button>
+            <button class="button primary" type="button" data-go="oggi">Fatto</button>
+          </div>
+        </div>
+        <div id="orario-editor" class="orario-editor"></div>
+      </section>
+
+      <section id="materie-libri" class="view" aria-labelledby="materie-libri-title">
+        <div class="view-heading">
+          <div><p class="eyebrow">Una volta sola</p><h1 id="materie-libri-title">Libri per materia</h1><p class="subtitle">Collega ogni materia ai suoi libri. Poi l’app sa da sola quali libri servono ogni giorno.</p></div>
+          <div class="heading-buttons"><button class="button primary" type="button" data-go="oggi">Fatto</button></div>
+        </div>
+        <div id="materie-libri-vuoto" class="empty-state compact" hidden><h2>Prima i libri</h2><p>Aggiungi i libri dalla Libreria: poi torna qui e collegali alle materie.</p></div>
+        <div id="materie-libri-elenco" class="materie-griglia"></div>
       </section>
 
       <section id="impostazioni" class="view" aria-labelledby="settings-title">
@@ -229,9 +287,27 @@
     <form method="dialog" id="notebook-form" class="dialog-form"><div class="dialog-heading"><div><p class="eyebrow">Nuovo</p><h2>Crea quaderno</h2></div><button type="button" data-dialog-close class="icon-button" aria-label="Chiudi">×</button></div><label>Titolo<input id="new-notebook-title" required maxlength="80" placeholder="Es. Matematica"></label><label>Materia<input id="new-notebook-subject" required maxlength="60" list="subjects-list"></label><fieldset><legend>Tipo di foglio</legend><label class="choice-card"><input type="radio" name="paper-type" value="righe" checked><span class="paper-sample lined"></span><strong>Righe</strong></label><label class="choice-card"><input type="radio" name="paper-type" value="quadretti"><span class="paper-sample squared"></span><strong>Quadretti</strong></label><label class="choice-card"><input type="radio" name="paper-type" value="bianco"><span class="paper-sample blank"></span><strong>Bianco</strong></label><label class="choice-card"><input type="radio" name="paper-type" value="pentagramma"><span class="paper-sample staff"></span><strong>Pentagramma</strong></label><label class="choice-card"><input type="radio" name="paper-type" value="millimetrato"><span class="paper-sample graph"></span><strong>Millimetrato</strong></label></fieldset><div class="dialog-actions"><button type="button" data-dialog-close class="button secondary">Annulla</button><button class="button primary" value="default">Crea quaderno</button></div></form>
   </dialog>
   <dialog id="task-dialog">
-    <form method="dialog" id="task-form" class="dialog-form"><input id="edit-task-id" type="hidden"><div class="dialog-heading"><div><p class="eyebrow">Promemoria</p><h2 id="task-dialog-title">Nuovo compito</h2></div><button type="button" data-dialog-close class="icon-button" aria-label="Chiudi">×</button></div><label>Materia<input id="task-subject" required maxlength="60" list="subjects-list"></label><label>Descrizione<textarea id="task-description" required maxlength="500" rows="4"></textarea></label><label>Consegna<input id="task-due" type="date" required></label><label>Collegamento facoltativo<select id="task-link"><option value="">Nessun collegamento</option></select></label><label id="task-link-page-row" hidden>Pagina<input id="task-link-page" type="number" min="1" value="1"></label><div class="photo-field"><span class="field-label">Foto della lavagna</span><div class="button-row"><label class="button secondary file-button"><input id="task-photo" type="file" accept="image/*" capture="environment" hidden>Scatta o scegli</label><button type="button" id="task-photo-remove" class="button secondary danger-text" hidden>Togli la foto</button></div><img id="task-photo-preview" alt="Foto del compito" hidden></div><div class="dialog-actions"><button type="button" data-dialog-close class="button secondary">Annulla</button><button class="button primary" value="default">Salva compito</button></div></form>
+    <form method="dialog" id="task-form" class="dialog-form"><input id="edit-task-id" type="hidden"><input id="task-materia-id" type="hidden"><div class="dialog-heading"><div><p class="eyebrow">Promemoria</p><h2 id="task-dialog-title">Nuovo compito</h2></div><button type="button" data-dialog-close class="icon-button" aria-label="Chiudi">×</button></div><label>Materia<input id="task-subject" required maxlength="60" list="subjects-list"></label><label>Descrizione<textarea id="task-description" required maxlength="500" rows="4"></textarea></label><label>Consegna<input id="task-due" type="date" required></label><label>Collegamento facoltativo<select id="task-link"><option value="">Nessun collegamento</option></select></label><label id="task-link-page-row" hidden>Pagina<input id="task-link-page" type="number" min="1" value="1"></label><div class="photo-field"><span class="field-label">Foto della lavagna</span><div class="button-row"><label class="button secondary file-button"><input id="task-photo" type="file" accept="image/*" capture="environment" hidden>Scatta o scegli</label><button type="button" id="task-photo-remove" class="button secondary danger-text" hidden>Togli la foto</button></div><img id="task-photo-preview" alt="Foto del compito" hidden></div><div class="dialog-actions"><button type="button" data-dialog-close class="button secondary">Annulla</button><button class="button primary" value="default">Salva compito</button></div></form>
   </dialog>
-  <datalist id="subjects-list"><option value="Italiano"><option value="Matematica"><option value="Storia"><option value="Geografia"><option value="Scienze"><option value="Inglese"><option value="Arte"><option value="Tecnologia"></datalist>
+  <datalist id="subjects-list"><option value="Italiano"><option value="Matematica"><option value="Geometria"><option value="Storia"><option value="Geografia"><option value="Inglese"><option value="Scienze"><option value="Musica"><option value="Arte"><option value="Tecnologia"></datalist>
+
+  <dialog id="giorno-dialog">
+    <div class="dialog-form">
+      <div class="dialog-heading"><div><p class="eyebrow" id="giorno-eyebrow">Scrivi un compito</p><h2 id="giorno-titolo"></h2></div><button type="button" data-dialog-close class="icon-button" aria-label="Chiudi">×</button></div>
+      <p id="giorno-nota" class="small-copy">Tocca la materia giusta e scrivi il compito.</p>
+      <div id="giorno-materie" class="giorno-materie"></div>
+      <div class="dialog-actions"><button type="button" data-dialog-close class="button secondary">Chiudi</button></div>
+    </div>
+  </dialog>
+
+  <dialog id="materia-libri-dialog">
+    <form method="dialog" id="materia-libri-form" class="dialog-form">
+      <div class="dialog-heading"><div><p class="eyebrow">Libri della materia</p><h2 id="materia-libri-titolo"></h2></div><button type="button" data-dialog-close class="icon-button" aria-label="Chiudi">×</button></div>
+      <p class="small-copy">Segna i libri che servono per questa materia. Si può cambiare quando vuoi.</p>
+      <div id="materia-libri-scelte" class="scelta-libri"></div>
+      <div class="dialog-actions"><button type="button" data-dialog-close class="button secondary">Annulla</button><button class="button primary" value="default">Salva i libri</button></div>
+    </form>
+  </dialog>
 
   <dialog id="bookmark-dialog">
     <form method="dialog" id="bookmark-form" class="dialog-form">

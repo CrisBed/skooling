@@ -5,11 +5,14 @@ import { NotebookManager } from './quaderni.js';
 import { AlbumManager, ridimensionaFoto, sistemaFotoSenzaAlbum } from './album.js';
 import { cercaNeiLibri, normalizza } from './ricerca.js';
 import { mostraDiario } from './diario.js';
+import { OrarioManager } from './orario-vista.js';
+import { idMateriaDaNome, nomeMateria } from './orario.js';
 import { downloadBlob } from './strumenti.js';
 
 const state = { books: [], tasks: [], taskFilter: 'todo', coverUrls: [], fotoCompito: null, urlCompiti: [] };
 let notebooks;
 let album;
+let orario;
 let toastTimer;
 
 export function notify(text, error = false) {
@@ -37,9 +40,12 @@ export function navigate(view) {
   document.querySelectorAll('[data-go]').forEach((button) => button.classList.toggle('active', button.dataset.go === view));
   if (view === 'libreria') renderLibrary();
   if (view === 'quaderni') notebooks.renderList();
-  // Il biglietto si rifa' a ogni visita: se nel frattempo e' passata la
-  // mezzanotte cambia da solo, senza riavviare l'app.
-  if (view === 'compiti') { mostraDiario(); renderTasks(); }
+  // Oggi, il biglietto e i giorni del diario si rifanno a ogni visita: se nel
+  // frattempo e' passata la mezzanotte cambiano da soli, senza riavviare l'app.
+  if (view === 'oggi') orario.renderOggi();
+  if (view === 'compiti') { mostraDiario(); orario.renderSettimana(); orario.renderProssimiGiorni(); renderTasks(); }
+  if (view === 'orario') orario.renderEditor();
+  if (view === 'materie-libri') orario.renderLibriPerMateria();
   if (view === 'album') album.renderList();
   if (view === 'impostazioni') updateStorage();
   document.querySelector('#main-content').scrollTo?.(0, 0);
@@ -114,6 +120,7 @@ async function importPdfs(files) {
   hideProgress();
   document.querySelector('#pdf-input').value = '';
   await renderLibrary();
+  await orario.aggiornaLibri();
   if (imported) notify(imported === 1 ? 'Libro aggiunto alla libreria.' : `${imported} libri aggiunti alla libreria.`);
 }
 
@@ -191,6 +198,7 @@ async function deleteBook(book) {
   await DB.deleteWhere('annotazioni', (item) => item.idLibro === book.id);
   await DB.deleteWhere('segnalibri', (item) => item.idLibro === book.id);
   await renderLibrary();
+  await orario.aggiornaLibri();
   notify('Libro eliminato.');
 }
 
@@ -339,16 +347,24 @@ function mostraFotoCompito(immagine) {
   togli.hidden = false;
 }
 
+// Apre il foglio di un compito nuovo. Arrivando dal giorno del diario la
+// materia e la consegna sono gia' decise: Gabriel ha toccato la materia giusta
+// dentro il giorno giusto, e non deve scriverle un'altra volta.
+async function apriNuovoCompito({ materia = '', idMateria = '', consegna = '' } = {}) {
+  document.querySelector('#task-form').reset();
+  document.querySelector('#edit-task-id').value = '';
+  document.querySelector('#task-dialog-title').textContent = materia ? `Compito di ${materia}` : 'Nuovo compito';
+  document.querySelector('#task-subject').value = materia;
+  document.querySelector('#task-materia-id').value = idMateria;
+  document.querySelector('#task-due').value = consegna || tomorrowDate();
+  mostraFotoCompito(null);
+  await populateTaskLinks();
+  document.querySelector('#task-dialog').showModal();
+  if (materia) document.querySelector('#task-description').focus();
+}
+
 function bindTasks() {
-  document.querySelector('#new-task').addEventListener('click', async () => {
-    document.querySelector('#task-form').reset();
-    document.querySelector('#edit-task-id').value = '';
-    document.querySelector('#task-dialog-title').textContent = 'Nuovo compito';
-    document.querySelector('#task-due').value = tomorrowDate();
-    mostraFotoCompito(null);
-    await populateTaskLinks();
-    document.querySelector('#task-dialog').showModal();
-  });
+  document.querySelector('#new-task').addEventListener('click', () => apriNuovoCompito());
   document.querySelector('#task-photo').addEventListener('change', async (event) => {
     const [file] = event.target.files;
     event.target.value = '';
@@ -375,6 +391,10 @@ function bindTasks() {
     await DB.put('compiti', {
       id,
       materia: document.querySelector('#task-subject').value.trim(),
+      // L'id della materia e' quello che poi apre il libro giusto. Se il
+      // compito e' stato scritto a mano si ricava dal testo, quando combacia.
+      idMateria: document.querySelector('#task-materia-id').value
+        || idMateriaDaNome(document.querySelector('#task-subject').value),
       descrizione: document.querySelector('#task-description').value.trim(),
       consegna: document.querySelector('#task-due').value,
       stato: previous?.stato || 'todo',
@@ -412,9 +432,17 @@ function makeTaskCard(task) {
     state.urlCompiti.push(url);
     miniatura = `<button type="button" class="task-photo" aria-label="Apri la foto del compito"><img src="${url}" alt=""></button>`;
   }
-  article.innerHTML = `<button type="button" class="task-check" aria-label="${task.stato === 'done' ? 'Segna da fare' : 'Segna fatto'}">✓</button>${miniatura}<div class="task-copy"><strong>${escapeHtml(task.descrizione)}</strong><span>${escapeHtml(task.materia)}${task.collegamento ? ' · Ha un collegamento' : ''}</span></div><div class="task-date${overdue ? ' overdue' : ''}">${overdue ? 'Scaduto · ' : ''}${dateLabel}</div><div class="task-actions">${task.collegamento ? '<button type="button" data-open-link aria-label="Apri collegamento">↗</button>' : ''}<button type="button" data-edit aria-label="Modifica compito">✎</button><button type="button" data-delete class="danger-text" aria-label="Elimina compito">×</button></div>`;
+  // La materia del compito apre il libro della materia, quando ce n'e' uno
+  // collegato: e' il tocco che porta Gabriel dal compito al libro giusto.
+  const idMateria = task.idMateria || idMateriaDaNome(task.materia);
+  const conLibro = Boolean(idMateria) && orario.libriDi(idMateria).length > 0;
+  const materiaHtml = conLibro
+    ? `<button type="button" class="task-materia" aria-label="Apri il libro di ${escapeHtml(nomeMateria(idMateria))}">${escapeHtml(nomeMateria(idMateria))} <span aria-hidden="true">▤</span></button>`
+    : escapeHtml(task.materia);
+  article.innerHTML = `<button type="button" class="task-check" aria-label="${task.stato === 'done' ? 'Segna da fare' : 'Segna fatto'}">✓</button>${miniatura}<div class="task-copy"><strong>${escapeHtml(task.descrizione)}</strong><span>${materiaHtml}${task.collegamento ? ' · Ha un collegamento' : ''}</span></div><div class="task-date${overdue ? ' overdue' : ''}">${overdue ? 'Scaduto · ' : ''}${dateLabel}</div><div class="task-actions">${task.collegamento ? '<button type="button" data-open-link aria-label="Apri collegamento">↗</button>' : ''}<button type="button" data-edit aria-label="Modifica compito">✎</button><button type="button" data-delete class="danger-text" aria-label="Elimina compito">×</button></div>`;
   article.querySelector('.task-check').addEventListener('click', async () => { task.stato = task.stato === 'done' ? 'todo' : 'done'; await DB.put('compiti', task); renderTasks(); });
   article.querySelector('.task-photo')?.addEventListener('click', () => mostraFoto({ titolo: task.descrizione, immagine: task.foto }));
+  article.querySelector('.task-materia')?.addEventListener('click', () => orario.apriLibroDiMateria(idMateria));
   article.querySelector('[data-open-link]')?.addEventListener('click', () => openTaskLink(task));
   article.querySelector('[data-edit]').addEventListener('click', () => editTask(task));
   article.querySelector('[data-delete]').addEventListener('click', async () => {
@@ -429,6 +457,7 @@ async function editTask(task) {
   document.querySelector('#edit-task-id').value = task.id;
   document.querySelector('#task-dialog-title').textContent = 'Modifica compito';
   document.querySelector('#task-subject').value = task.materia;
+  document.querySelector('#task-materia-id').value = task.idMateria || idMateriaDaNome(task.materia);
   document.querySelector('#task-description').value = task.descrizione;
   document.querySelector('#task-due').value = task.consegna;
   mostraFotoCompito(task.foto);
@@ -443,6 +472,18 @@ async function openTaskLink(task) {
   if (!link) return;
   if (link.tipo === 'libro') await openBook(link.id, link.pagina);
   else await notebooks.open(link.id, link.pagina);
+}
+
+function bindOrario() {
+  document.querySelector('#orario-ripristina').addEventListener('click', async () => {
+    if (!confirm('Rimettere l’orario arrivato dalla scuola? Le ore cambiate a mano si perdono.')) return;
+    await orario.ripristinaOrarioDellaScuola();
+  });
+  document.querySelector('#materia-libri-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    await orario.confermaSceltaLibri();
+    document.querySelector('#materia-libri-dialog').close();
+  });
 }
 
 function bindSettings() {
@@ -551,9 +592,17 @@ async function start() {
     await DB.init();
     notebooks = new NotebookManager({ notify, showProgress, hideProgress });
     album = new AlbumManager({ notify, showProgress, hideProgress, mostraFoto });
+    orario = new OrarioManager({
+      notify,
+      apriLibro: (id) => openBook(id),
+      scriviCompito: (dettagli) => apriNuovoCompito(dettagli),
+      vaiA: navigate,
+    });
+    await orario.carica();
     bindNavigation();
     bindLibrary();
     bindTasks();
+    bindOrario();
     bindSettings();
     const fingerSetting = await DB.get('impostazioni', 'disegna-dito');
     document.querySelector('#global-finger-draw').checked = Boolean(fingerSetting?.valore);
@@ -562,6 +611,9 @@ async function start() {
     // altrimenti sparirebbero dall'elenco pur restando nell'archivio.
     await sistemaFotoSenzaAlbum();
     mostraDiario();
+    orario.renderOggi();
+    orario.renderSettimana();
+    orario.renderProssimiGiorni();
     await Promise.all([renderLibrary(), notebooks.renderList(), renderTasks(), album.renderList(), updateStorage()]);
     await registerServiceWorker();
   } catch (error) {

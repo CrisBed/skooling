@@ -387,6 +387,77 @@ dialog::backdrop { background: rgb(13 25 53 / 48%); backdrop-filter: blur(5px); 
 .toast { position: fixed; z-index: 400; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%); max-width: min(90vw, 520px); padding: 14px 18px; border-radius: 14px; color: white; background: var(--ink); box-shadow: 0 12px 35px rgb(0 0 0 / 22%); font-weight: 700; text-align: center; }
 .toast.error { background: #8f241c; }
 
+/* ---------------------------------------------------------------------------
+   L'ORARIO. Tre posti: la giornata di "Oggi", la settimana dentro il diario e
+   le due schermate dove si cambia l'orario e si collegano i libri.
+   --------------------------------------------------------------------------- */
+.oggi-griglia { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); align-items: start; }
+.oggi-blocco { background: var(--paper); border-radius: var(--radius); padding: 22px; box-shadow: 0 8px 25px rgb(38 65 120 / 7%); }
+.oggi-blocco.zaino { background: #173d9f; color: white; }
+.oggi-blocco.zaino .small-copy, .oggi-blocco.zaino h2 { color: #dce8ff; }
+.oggi-blocco h2 { margin: 0 0 14px; font-size: 18px; }
+.oggi-blocco > .small-copy { margin: -10px 0 14px; color: var(--muted); }
+
+.ora-elenco { display: grid; gap: 7px; }
+.ora-voce { display: flex; align-items: baseline; gap: 12px; padding: 9px 12px; border-radius: 13px; background: var(--desk); }
+.ora-campanella { flex: 0 0 auto; min-width: 86px; color: var(--muted); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ora-materia { font-size: 16px; }
+.ora-pausa { margin: 2px 0; padding: 5px 12px; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.ora-elenco .button { margin-top: 10px; }
+
+.libro-riga { display: flex; flex-wrap: wrap; gap: 10px; }
+.libro-riga .small-copy { flex: 1 1 100%; margin: 0; color: var(--muted); }
+.oggi-blocco.zaino .libro-riga .small-copy { color: #c8d9ff; }
+.libro-pillola { display: grid; gap: 3px; text-align: left; min-height: 62px; padding: 11px 16px; border: 0; border-radius: 15px; background: var(--blue-soft); color: var(--blue-dark); }
+.libro-pillola strong { font-size: 15px; }
+.libro-pillola span { font-size: 12px; font-weight: 700; opacity: .75; }
+.oggi-blocco.zaino .libro-pillola { background: rgb(255 255 255 / 14%); color: white; }
+
+.diario-orario { grid-column: 1 / -1; background: var(--paper); border-radius: var(--radius); padding: 20px 22px; box-shadow: 0 8px 25px rgb(38 65 120 / 7%); }
+.settimana-testa { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.settimana-testa .eyebrow { margin: 0; }
+.button.small { min-height: 40px; padding: 0 14px; font-size: 14px; }
+.orario-settimana { margin-top: 14px; overflow-x: auto; }
+.settimana-tabella { width: 100%; border-collapse: collapse; font-size: 14px; }
+.settimana-tabella th, .settimana-tabella td { padding: 9px 10px; text-align: left; border-bottom: 1px solid var(--line); }
+.settimana-tabella thead th { color: var(--blue); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+.settimana-tabella .colonna-ora { white-space: pre-line; color: var(--muted); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.settimana-tabella .oggi { background: var(--blue-soft); }
+.settimana-tabella .libera { color: var(--muted); }
+.settimana-tabella .riga-pausa td { padding: 5px 10px; color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; background: var(--desk); }
+
+.giorni-scelta { margin: 0 0 16px; }
+.giorni-prossimi { display: flex; gap: 9px; overflow-x: auto; padding-bottom: 5px; }
+.giorno-pillola { flex: 0 0 auto; display: grid; gap: 1px; place-items: center; min-width: 58px; min-height: 60px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 16px; background: var(--paper); }
+.giorno-pillola.oggi { border-color: var(--blue); background: var(--blue-soft); color: var(--blue-dark); }
+.giorno-nome { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.giorno-pillola.oggi .giorno-nome { color: var(--blue-dark); }
+.giorno-numero { font-size: 19px; font-variant-numeric: tabular-nums; }
+
+.giorno-materie { display: grid; gap: 9px; max-height: 52vh; overflow-y: auto; }
+.materia-scelta { display: grid; gap: 3px; text-align: left; min-height: 62px; padding: 12px 16px; border: 1px solid var(--line); border-radius: 15px; background: var(--paper); }
+.materia-scelta strong { font-size: 17px; }
+.materia-scelta span { color: var(--muted); font-size: 13px; }
+
+.task-materia { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; padding: 3px 10px; border: 0; border-radius: 99px; background: var(--blue-soft); color: var(--blue-dark); font-size: 13px; font-weight: 750; }
+
+.orario-editor { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); align-items: start; }
+.orario-giorno { background: var(--paper); border-radius: var(--radius); padding: 18px; box-shadow: 0 8px 25px rgb(38 65 120 / 7%); }
+.orario-giorno h2 { margin: 0 0 14px; font-size: 17px; color: var(--blue-dark); }
+.orario-campo { display: grid; gap: 5px; margin-bottom: 12px; }
+.orario-campo select, .orario-campo input { min-height: 44px; padding: 0 11px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+.orario-campo input { font-size: 14px; }
+
+.materie-griglia { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); align-items: start; }
+.materia-scheda { background: var(--paper); border-radius: var(--radius); padding: 20px; box-shadow: 0 8px 25px rgb(38 65 120 / 7%); }
+.materia-scheda h2 { margin: 0 0 12px; font-size: 19px; }
+.materia-libri { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 14px; min-height: 30px; }
+.materia-libri .small-copy { margin: 0; color: var(--muted); }
+.libro-tag { padding: 5px 11px; border-radius: 99px; background: var(--desk); font-size: 13px; font-weight: 700; }
+.scelta-libri { display: grid; gap: 4px; max-height: 46vh; overflow-y: auto; }
+.scelta-libro { display: flex; align-items: center; gap: 11px; padding: 10px 12px; border-radius: 12px; background: var(--desk); font-size: 15px; }
+.scelta-libro input { width: 22px; height: 22px; flex: 0 0 auto; }
+
 @media (max-width: 900px) {
   #app-shell { padding: calc(env(safe-area-inset-top) + 70px) 18px calc(env(safe-area-inset-bottom) + 98px); }
   .main-nav { inset: auto 0 0 0; width: auto; height: calc(74px + env(safe-area-inset-bottom)); padding: 7px max(10px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(10px, env(safe-area-inset-left)); grid-auto-flow: column; grid-auto-columns: 1fr; background: rgb(251 252 255 / 94%); border-top: 1px solid var(--line); backdrop-filter: blur(18px); }
@@ -398,6 +469,11 @@ dialog::backdrop { background: rgb(13 25 53 / 48%); backdrop-filter: blur(5px); 
 }
 
 @media (max-width: 620px) {
+  /* Con sei sezioni la barra in basso si stringe: la scritta piu' lunga,
+     "Impostazioni", uscirebbe dalla sua casella. Si rimpicciolisce il testo e
+     si taglia dentro la casella, invece di sbordare sullo schermo. */
+  .main-nav button { font-size: 10px; padding: 0 2px; }
+  .main-nav button span:last-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .view-heading { align-items: stretch; flex-direction: column; margin-top: 16px; }
   .view-heading .button { width: 100%; }
   .filters { flex-direction: column; }

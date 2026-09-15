@@ -10,13 +10,13 @@ test('la shell contiene navigazione, import PDF e viste principali', async () =>
   assert.match(html, /apple-mobile-web-app-capable/);
   assert.match(html, /viewport-fit=cover/);
   assert.match(html, /accept="application\/pdf"[^>]*multiple/);
-  for (const id of ['libreria', 'quaderni', 'compiti', 'impostazioni', 'lettore-pdf', 'editor-quaderno']) {
+  for (const id of ['oggi', 'libreria', 'quaderni', 'compiti', 'orario', 'materie-libri', 'impostazioni', 'lettore-pdf', 'editor-quaderno']) {
     assert.match(html, new RegExp(`id="${id}"`));
   }
 });
 
 test('i moduli applicativi usano soltanto import locali', async () => {
-  const names = ['app.js', 'db.js', 'pdf-viewer.js', 'quaderni.js', 'strumenti.js', 'album.js', 'ricerca.js', 'musica.js', 'diario.js', 'diario-contenuti.js', 'pagine.js'];
+  const names = ['app.js', 'db.js', 'pdf-viewer.js', 'quaderni.js', 'strumenti.js', 'album.js', 'ricerca.js', 'musica.js', 'diario.js', 'diario-contenuti.js', 'pagine.js', 'orario.js', 'orario-vista.js'];
   for (const name of names) {
     const source = await readFile(new URL(`../${name}`, import.meta.url), 'utf8');
     assert.doesNotMatch(source, /https?:\/\/|(?:src|href)\s*=\s*['"]\/\//i, `${name} contiene un URL remoto`);
@@ -28,7 +28,7 @@ test('i moduli applicativi usano soltanto import locali', async () => {
 
 test('il service worker include ogni risorsa statica essenziale', async () => {
   const sw = await readFile(new URL('../sw.js', import.meta.url), 'utf8');
-  const required = ['index.html', 'style.css', 'app.js', 'db.js', 'pdf-viewer.js', 'quaderni.js', 'strumenti.js', 'album.js', 'ricerca.js', 'musica.js', 'diario.js', 'diario-contenuti.js', 'pagine.js', 'manifest.webmanifest', 'vendor/SkoolingMusica.woff2', 'vendor/pdf.mjs', 'vendor/pdf.worker.mjs'];
+  const required = ['index.html', 'style.css', 'app.js', 'db.js', 'pdf-viewer.js', 'quaderni.js', 'strumenti.js', 'album.js', 'ricerca.js', 'musica.js', 'diario.js', 'diario-contenuti.js', 'pagine.js', 'orario.js', 'orario-vista.js', 'manifest.webmanifest', 'vendor/SkoolingMusica.woff2', 'vendor/pdf.mjs', 'vendor/pdf.worker.mjs'];
   for (const file of required) assert.match(sw, new RegExp(file.replaceAll('.', '\\.')));
 });
 
@@ -239,4 +239,61 @@ test('i decodificatori WebAssembly di PDF.js viaggiano con l\u2019app', async ()
   }
   const licenze = await readFile(new URL('../LICENZE.md', import.meta.url), 'utf8');
   assert.match(licenze, /JBIG2/i, 'la licenza del decodificatore va citata');
+});
+
+test('l’orario ha le sue tre porte: la giornata, il cambio e i libri per materia', async () => {
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  // La dashboard e' la prima cosa che si vede aprendo Skooling.
+  assert.match(html, /<section id="oggi" class="view active"/, 'Oggi è la sezione che parte');
+  assert.doesNotMatch(html, /<section id="libreria" class="view active"/, 'la libreria non parte più attiva');
+  assert.match(html, /data-go="oggi"/);
+  for (const id of ['oggi-materie', 'oggi-libri', 'zaino-libri', 'zaino-titolo', 'orario-settimana', 'giorni-prossimi', 'orario-editor', 'materie-libri-elenco']) {
+    assert.match(html, new RegExp(`id="${id}"`), `manca il posto ${id}`);
+  }
+  for (const id of ['giorno-dialog', 'materia-libri-dialog']) assert.match(html, new RegExp(`<dialog id="${id}"`), `manca la finestrella ${id}`);
+});
+
+test('nessun libro di Gabriel è scritto dentro il codice: l’associazione vive nell’archivio', async () => {
+  // Il vincolo di Cristian. Il legame materia-libro si fa dalla schermata e si
+  // salva; se qualcuno lo cablasse qui, un libro nuovo tornerebbe a essere un
+  // lavoro da programmatore.
+  const vista = await readFile(new URL('../orario-vista.js', import.meta.url), 'utf8');
+  assert.match(vista, /DB\.put\('impostazioni', \{ id: CHIAVE_LIBRI/, 'l’associazione si salva nell’archivio');
+  assert.match(vista, /DB\.get\('impostazioni', CHIAVE_ORARIO\)/, 'l’orario si rilegge dall’archivio');
+  for (const sorgente of [vista, await readFile(new URL('../orario.js', import.meta.url), 'utf8')]) {
+    assert.doesNotMatch(sorgente, /\.pdf\b/i, 'nessun titolo di libro cablato');
+  }
+});
+
+test('orario e libri per materia entrano nel backup senza un archivio nuovo', async () => {
+  // Stanno in `impostazioni`, che il backup porta da sempre: cosi' un
+  // ripristino rimette anche l’orario, senza alzare la versione del database.
+  const db = await readFile(new URL('../db.js', import.meta.url), 'utf8');
+  assert.match(db, /STORE_NAMES_STORICI[\s\S]*?'impostazioni'/);
+  const vista = await readFile(new URL('../orario-vista.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(vista, /DB_VERSION|createObjectStore/, 'l’orario non apre archivi nuovi');
+  assert.match(vista, /CHIAVE_ORARIO = 'orario'/);
+  assert.match(vista, /CHIAVE_LIBRI = 'materie-libri'/);
+});
+
+test('il compito porta con sé la materia, e dalla materia si apre il libro', async () => {
+  const app = await readFile(new URL('../app.js', import.meta.url), 'utf8');
+  assert.match(app, /idMateria: document\.querySelector\('#task-materia-id'\)\.value/, 'il compito salva la materia scelta');
+  assert.match(app, /idMateriaDaNome/, 'un compito scritto a mano ritrova lo stesso la sua materia');
+  assert.match(app, /orario\.apriLibroDiMateria\(idMateria\)/, 'dal compito si apre il libro della materia');
+  assert.match(app, /apriNuovoCompito\(\{ materia = '', idMateria = '', consegna = '' \}/, 'il giorno del diario prepara il compito già intestato');
+});
+
+test('ogni modulo che il service worker mette in cache viene anche pubblicato', async () => {
+  // La trappola vera, trovata il 15/09 un minuto prima di pubblicare: pubblica.sh
+  // copia una LISTA ESPLICITA di file, e due moduli nuovi non c'erano. Il service
+  // worker li aveva, i test passavano, ma sul tablet sarebbe arrivata un'app che
+  // cerca file inesistenti. Aggiungendo un modulo si dimentica questa lista.
+  const sw = await readFile(new URL('../sw.js', import.meta.url), 'utf8');
+  const pubblica = await readFile(new URL('../pubblica.sh', import.meta.url), 'utf8');
+  const moduli = [...sw.matchAll(/'\.\/([\w-]+\.js)'/g)].map((trovato) => trovato[1]);
+  assert.ok(moduli.length >= 12, 'i moduli letti dal service worker sono pochi, la lettura non funziona');
+  for (const modulo of moduli) {
+    assert.match(pubblica, new RegExp(`\\$APP/${modulo.replace('.', '\\.')}"`), `pubblica.sh non copia ${modulo}`);
+  }
 });

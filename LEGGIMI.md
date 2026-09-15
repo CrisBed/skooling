@@ -75,6 +75,42 @@ Apri **Compiti** e scegli **Nuovo compito**. Puoi collegarlo a una pagina di un 
 
 Metà della sezione è occupata dal **biglietto del giorno**: una battuta, un quiz lampo, una curiosità vera, una sfida, l'oroscopo della scuola o la parola del giorno. Cambia da solo ogni giorno e non si ripete per 240 giorni; quando finiscono, il giro ricomincia. Non serve rete e non c'è niente da scrivere: i 240 giorni viaggiano dentro l'app. Sul quiz si tocca una risposta e si scopre subito com'è andata.
 
+### L'orario e la giornata
+
+Skooling si apre su **Oggi**. La sezione mostra tre cose: le ore di oggi con gli orari delle campanelle, i libri che servono oggi (un tocco e il libro si apre) e **Prepara lo zaino**, cioè i libri del prossimo giorno di scuola. Il venerdì, il sabato e la domenica lo zaino è quello del lunedì.
+
+Prima che tutto questo funzioni servono due passaggi, da fare una volta sola.
+
+#### 1. Collegare i libri alle materie
+
+1. Apri **Oggi**.
+2. Tocca **Libri per materia**.
+3. Per ogni materia tocca **Scegli i libri** e segna i libri che servono.
+
+Il collegamento sta sulla **materia**, non sul giorno. Da qui in poi Skooling ricava da sola i libri di ogni giornata leggendo l'orario: se la scuola sposta un'ora, i libri di quel giorno cambiano da soli.
+
+#### 2. Controllare l'orario
+
+L'orario della classe è già dentro Skooling. Per cambiarlo:
+
+1. Apri **Oggi**.
+2. Tocca **L'orario**.
+3. Scegli la materia dell'ora che è cambiata. Il salvataggio è immediato.
+
+L'etichetta accanto a ogni ora serve per le varianti della stessa materia, per esempio `Antologia` e `Grammatica` per Italiano. Restano ore di **Italiano**: i compiti si scrivono tutti sulla materia Italiano, non su quattro italiani diversi. L'ora di **Storia / Geografia** vale per tutte e due le materie, e quando ci si scrive un compito si sceglie di quale delle due è.
+
+Il pulsante **Rimetti quello della scuola** riporta l'orario arrivato a inizio anno.
+
+#### Scrivere un compito dal giorno
+
+Nella sezione **Compiti**, sotto il biglietto del giorno, c'è la striscia dei prossimi giorni di scuola. Tocca il giorno della consegna: compaiono le materie di quel giorno della settimana. Tocca la materia e scrivi il compito. Materia e data sono già a posto.
+
+Per esempio, se martedì 15 la professoressa di matematica assegna per martedì 22, si tocca **Mar 22**, poi **Matematica**, e si scrive.
+
+Nell'elenco dei compiti la materia è un pulsante: toccandola si apre il libro di quella materia. Se la materia ha più di un libro, Skooling chiede quale.
+
+L'orario completo della settimana si vede in fondo alla sezione **Compiti**.
+
 ### Album delle foto
 
 Le foto che non appartengono a un compito stanno in **Album**, raccolte in cartelle.

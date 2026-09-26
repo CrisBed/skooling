@@ -471,9 +471,11 @@ export function riquadroElemento(element) {
   if (element.tipo === 'simbolo') {
     const ingombro = ingombroSegno(element.segno);
     const unita = element.unita || 0.02;
+    // i segni salvati prima di `unitaX` restano come erano
+    const unitaX = element.unitaX || unita;
     return {
-      sinistra: element.x - unita * (ingombro.sinistra + 0.3),
-      destra: element.x + unita * (ingombro.destra + 0.3),
+      sinistra: element.x - unitaX * (ingombro.sinistra + 0.3),
+      destra: element.x + unitaX * (ingombro.destra + 0.3),
       alto: element.y - unita * (ingombro.sopra + 0.3),
       basso: element.y + unita * (ingombro.sotto + 0.3),
     };
@@ -556,7 +558,9 @@ export function ridimensionaElemento(element, originale, bordiNuovi) {
     element.x = perX(originale.x);
     element.y = perY(originale.y);
     // un simbolo resta sé stesso: cresce in modo uguale nei due versi
-    element.unita = Math.max(0.004, (originale.unita || 0.016) * ((fattoreX + fattoreY) / 2));
+    const fattore = (fattoreX + fattoreY) / 2;
+    element.unita = Math.max(0.004, (originale.unita || 0.016) * fattore);
+    if (originale.unitaX) element.unitaX = originale.unitaX * element.unita / (originale.unita || 0.016);
   } else if (originale.punti) {
     element.punti = originale.punti.map((p) => ({ ...p, x: perX(p.x), y: perY(p.y) }));
   } else {
@@ -951,6 +955,12 @@ export class DrawingSurface {
         x: point.x, y: this.agganciaY(point.y),
         unita: this.unitaMusicale(), colore: this.color, timestamp: Date.now(),
       };
+      // `unita` e' una frazione dell'altezza del foglio. Per i bordi in
+      // orizzontale serve la stessa misura in frazione della larghezza, che
+      // su un foglio orizzontale e' molto diversa.
+      const larghezza = this.canvas.offsetWidth;
+      const altezza = this.canvas.offsetHeight;
+      if (larghezza && altezza) element.unitaX = element.unita * altezza / larghezza;
       this.elements.push(element);
       this.selectedId = element.id;
       this.render();

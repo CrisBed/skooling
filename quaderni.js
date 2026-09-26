@@ -39,6 +39,12 @@ export function orientamentoPagina(tipo, pagina) {
 }
 
 // Misura in pixel dell'immagine esportata: stessa proporzione del foglio a schermo.
+// Il campo del disegno del rigo per una pagina nuova: solo sul pentagramma.
+export function campoDisegnoRigo(tipo) {
+  const disegno = disegnoRigoNuovaPagina(tipo);
+  return disegno ? { disegnoRigo: disegno } : {};
+}
+
 export function misuraEsportazione(orientamento) {
   return orientamento === ORIENTAMENTI.orizzontale ? { width: 1754, height: 1240 } : { width: 1240, height: 1754 };
 }
@@ -68,16 +74,103 @@ export function agganciaAlRigo(yNormalizzato, altezzaFoglio) {
   return (inizio + mezzi * (RIGO.passoRiga / 2)) / altezzaFoglio;
 }
 
+// Disegno del rigo di una pagina a pentagramma.
+// 1 FISSO: quello delle pagine nate fino alla v25. Misure in pixel fisse, il
+//   primo rigo a 15 px dal bordo, cioe' attaccato: sopra non ci stava una nota.
+// 2 PROPORZIONALE: ogni rigo ha sopra e sotto lo stesso spazio libero, primo e
+//   ultimo compresi, e tutto cresce col foglio come crescono i segni.
+// Le pagine gia' scritte tengono il disegno 1: i simboli sono agganciati alle
+// righe vecchie e spostare le righe li lascerebbe fuori posto.
+export const DISEGNI_RIGO = { fisso: 1, proporzionale: 2 };
+
+// Lo spazio libero fra due righi, sopra il primo e sotto l'ultimo vale 5,5
+// spazi di rigo: ci sta intera una nota sul secondo taglio addizionale con la
+// gamba in su (2 spazi + 3,5 di gamba). La v25 dava 86 px su 16, cioe' 5,4, ed
+// e' lo spazio che Cristian ha visto giusto sopra il secondo rigo.
+// Quanti righi stanno in un foglio e' fisso per orientamento, e il passo si
+// ricava da li': cosi' tutto cresce col foglio e non cambia girando l'iPad o
+// aprendo l'astuccio.
+export const RIGO_PROPORZIONALE = { spaziLiberi: 5.5, righi: { orizzontale: 4, verticale: 6 } };
+
+export function disegnoRigoNuovaPagina(tipo) {
+  return tipo === 'pentagramma' ? DISEGNI_RIGO.proporzionale : undefined;
+}
+
+// Il disegno da dare a una pagina che non lo ha ancora scritto: vuota prende
+// quello nuovo, scritta resta com'era.
+export function disegnoRigoPagina(tipo, pagina) {
+  if (tipo !== 'pentagramma') return null;
+  if (pagina?.disegnoRigo === DISEGNI_RIGO.fisso || pagina?.disegnoRigo === DISEGNI_RIGO.proporzionale) return pagina.disegnoRigo;
+  return (pagina?.elementi || []).length ? DISEGNI_RIGO.fisso : DISEGNI_RIGO.proporzionale;
+}
+
+// Dove stanno i righi su un foglio largo e alto cosi', in pixel.
+// `spazio` e' il vuoto fra un rigo e l'altro, uguale sopra il primo e sotto l'ultimo.
+export function geometriaRigo(disegno, larghezza, altezza) {
+  if (disegno !== DISEGNI_RIGO.proporzionale) {
+    return { ...RIGO, righi: righiInteri(altezza), spazio: RIGO.passoRigo - RIGO.passoRiga * 4 };
+  }
+  const righi = altezza >= larghezza ? RIGO_PROPORZIONALE.righi.verticale : RIGO_PROPORZIONALE.righi.orizzontale;
+  const { spaziLiberi } = RIGO_PROPORZIONALE;
+  const passoRiga = altezza / (righi * 4 + (righi + 1) * spaziLiberi);
+  const alto = passoRiga * 4;
+  const spazio = passoRiga * spaziLiberi;
+  return { passoRiga, passoRigo: alto + spazio, primaRiga: spazio, righi, spazio };
+}
+
+// Aggancio sul disegno nuovo: si cerca il rigo piu' vicino e ci si ferma alla
+// riga o allo spazio piu' vicini, anche fuori dal rigo fino a due tagli e mezzo
+// sopra o sotto, dove vanno le note acute e gravi.
+export function agganciaAlRigoProporzionale(yNormalizzato, altezzaFoglio, geometria) {
+  if (!altezzaFoglio || !geometria?.righi) return yNormalizzato;
+  const y = yNormalizzato * altezzaFoglio;
+  const centro = geometria.primaRiga + geometria.passoRiga * 2;
+  const indice = Math.max(0, Math.min(geometria.righi - 1, Math.round((y - centro) / geometria.passoRigo)));
+  const inizio = geometria.primaRiga + indice * geometria.passoRigo;
+  const mezzi = Math.round((y - inizio) / (geometria.passoRiga / 2));
+  if (mezzi < -5 || mezzi > 13) return yNormalizzato;
+  return (inizio + mezzi * (geometria.passoRiga / 2)) / altezzaFoglio;
+}
+
+// Lo sfondo del disegno nuovo: le righe si calcolano sulla misura vera del
+// foglio, quindi non si possono ripetere col CSS come nel disegno vecchio.
+// Un solo gradiente con una fascia di un pixel per ogni riga.
+export function sfondoRigo(geometria) {
+  const fermate = [];
+  for (let indice = 0; indice < geometria.righi; indice += 1) {
+    for (let linea = 0; linea < 5; linea += 1) {
+      const quota = geometria.primaRiga + indice * geometria.passoRigo + linea * geometria.passoRiga;
+      const da = (quota - 0.5).toFixed(2);
+      const a = (quota + 0.5).toFixed(2);
+      fermate.push(`transparent ${da}px`, `#5b6472 ${da}px`, `#5b6472 ${a}px`, `transparent ${a}px`);
+    }
+  }
+  return fermate.length ? `linear-gradient(to bottom, ${fermate.join(', ')})` : 'none';
+}
+
 function riga(context, x1, y1, x2, y2) {
   context.beginPath(); context.moveTo(x1, y1); context.lineTo(x2, y2); context.stroke();
 }
 
 // Ridisegna il foglio per l'esportazione in PNG e PDF: a schermo lo fa il CSS,
 // qui va rifatto col pennello perche' l'immagine esca uguale a quel che si vede.
-export function drawPaper(context, type, width, height, larghezzaSchermo = 780) {
+export function drawPaper(context, type, width, height, larghezzaSchermo = 780, disegnoRigo = DISEGNI_RIGO.fisso) {
   context.fillStyle = '#fffefa';
   context.fillRect(0, 0, width, height);
   if (type === 'bianco') return;
+
+  // Il disegno nuovo e' proporzionale: si calcola direttamente sulla misura
+  // dell'immagine e cade esattamente dove cade a schermo.
+  if (type === 'pentagramma' && disegnoRigo === DISEGNI_RIGO.proporzionale) {
+    const geometria = geometriaRigo(disegnoRigo, width, height);
+    context.strokeStyle = '#5b6472';
+    context.lineWidth = Math.max(1, geometria.passoRiga * 0.0875);
+    for (let indice = 0; indice < geometria.righi; indice += 1) {
+      const alto = geometria.primaRiga + indice * geometria.passoRigo;
+      for (let linea = 0; linea < 5; linea += 1) riga(context, 0, alto + linea * geometria.passoRiga, width, alto + linea * geometria.passoRiga);
+    }
+    return;
+  }
 
   // Le guide a schermo hanno misure fisse in pixel: qui il foglio e' piu'
   // grande, quindi si allargano nella proporzione del foglio visto a schermo.
@@ -152,11 +245,18 @@ export class NotebookManager {
     const gestoDueDita = (fase, event, touches) => this.gestoDueDita(fase, touches);
     // due fogli: sinistro (offset 0) e destro (offset 1). onChange salva la pagina giusta.
     // Sul pentagramma i simboli si incollano alla riga piu' vicina.
-    const aggancia = (canvas) => (y) => (this.current?.tipo === 'pentagramma'
-      ? agganciaAlRigo(y, canvas.offsetHeight)
-      : y);
+    // Ogni foglio guarda il disegno del rigo della SUA pagina.
+    const disegnoDi = (canvas) => Number(canvas.parentElement?.dataset.disegnoRigo) || DISEGNI_RIGO.fisso;
+    const aggancia = (canvas) => (y) => {
+      if (this.current?.tipo !== 'pentagramma') return y;
+      if (disegnoDi(canvas) !== DISEGNI_RIGO.proporzionale) return agganciaAlRigo(y, canvas.offsetHeight);
+      return agganciaAlRigoProporzionale(y, canvas.offsetHeight, geometriaRigo(DISEGNI_RIGO.proporzionale, canvas.offsetWidth, canvas.offsetHeight));
+    };
     // Il segno musicale e' alto quanto il passo del rigo, ne' piu' ne' meno.
-    const unita = (canvas) => () => (canvas.offsetHeight ? RIGO.passoRiga / canvas.offsetHeight : 0.016);
+    const unita = (canvas) => () => {
+      if (!canvas.offsetHeight) return 0.016;
+      return geometriaRigo(disegnoDi(canvas), canvas.offsetWidth, canvas.offsetHeight).passoRiga / canvas.offsetHeight;
+    };
     this.surface = new DrawingSurface(this.canvas, { gesto, onChange: (elements) => this.savePage(0, elements), onTouchGesture: gestoDueDita, agganciaY: aggancia(this.canvas), unitaMusicale: unita(this.canvas) });
     this.surface2 = new DrawingSurface(this.canvas2, { gesto, onChange: (elements) => this.savePage(1, elements), onTouchGesture: gestoDueDita, agganciaY: aggancia(this.canvas2), unitaMusicale: unita(this.canvas2) });
     // un unico astuccio comanda entrambi i fogli (attivo = l'ultimo toccato)
@@ -241,7 +341,7 @@ export class NotebookManager {
       const type = new FormData(event.currentTarget).get('paper-type');
       if (!title || !subject || !TIPI_FOGLIO[type]) return;
       const notebook = { id: createId('quaderno'), titolo: title, materia: subject, tipo: type, data: Date.now(), pagine: 1 };
-      const page = { id: createId('pagina'), idQuaderno: notebook.id, numero: 1, elementi: [], orientamento: orientamentoNuovaPagina(type), data: Date.now() };
+      const page = { id: createId('pagina'), idQuaderno: notebook.id, numero: 1, elementi: [], orientamento: orientamentoNuovaPagina(type), ...campoDisegnoRigo(type), data: Date.now() };
       await DB.put('quaderni', notebook);
       await DB.put('paginequaderno', page);
       document.querySelector('#notebook-dialog').close();
@@ -304,7 +404,7 @@ export class NotebookManager {
     if (!this.current) return this.notify('Questo quaderno non è più disponibile.', true);
     this.pages = (await DB.getAll('paginequaderno')).filter((page) => page.idQuaderno === id).sort((a, b) => a.numero - b.numero);
     if (!this.pages.length) {
-      const page = { id: createId('pagina'), idQuaderno: id, numero: 1, elementi: [], orientamento: orientamentoNuovaPagina(this.current.tipo), data: Date.now() };
+      const page = { id: createId('pagina'), idQuaderno: id, numero: 1, elementi: [], orientamento: orientamentoNuovaPagina(this.current.tipo), ...campoDisegnoRigo(this.current.tipo), data: Date.now() };
       await DB.put('paginequaderno', page);
       this.pages = [page];
     }
@@ -312,8 +412,11 @@ export class NotebookManager {
     // lo ricevono ora, una volta sola, e lo tengono per sempre: una pagina
     // vuota mostrata orizzontale non deve tornare verticale al primo segno.
     for (const page of this.pages) {
-      if (page.orientamento) continue;
+      const manca = !page.orientamento || (this.current.tipo === 'pentagramma' && !page.disegnoRigo);
+      if (!manca) continue;
       page.orientamento = orientamentoPagina(this.current.tipo, page);
+      const disegno = disegnoRigoPagina(this.current.tipo, page);
+      if (disegno) page.disegnoRigo = disegno;
       await DB.put('paginequaderno', page);
     }
     this.pageIndex = Math.max(0, Math.min(this.pages.length - 1, Number(pageNumber) - 1));
@@ -475,6 +578,9 @@ export class NotebookManager {
     const orientamento = orientamentoPagina(this.current.tipo, page);
     wrap.classList.toggle('orizzontale', orientamento === ORIENTAMENTI.orizzontale);
     wrap.dataset.orientamento = orientamento;
+    const disegno = disegnoRigoPagina(this.current.tipo, page);
+    if (disegno) wrap.dataset.disegnoRigo = String(disegno);
+    else delete wrap.dataset.disegnoRigo;
     surface.setElements(page ? (page.elementi || []) : []);
     // Nel quaderno si SCRIVE: il dito disegna sempre, senza bisogno della Pencil.
     surface.setDrawWithFinger(true);
@@ -489,15 +595,25 @@ export class NotebookManager {
   // a una riga sola. Qui lo sfondo si ferma all'ultimo rigo che ci sta intero,
   // con la stessa regola dell'esportazione.
   soloRighiInteri(wrap) {
+    wrap.style.backgroundImage = '';
     if (this.current?.tipo !== 'pentagramma' || !wrap.offsetHeight) {
       wrap.style.backgroundSize = '';
       wrap.style.backgroundRepeat = '';
+      return;
+    }
+    if (Number(wrap.dataset.disegnoRigo) === DISEGNI_RIGO.proporzionale) {
+      // disegno nuovo: righe calcolate sulla misura vera del foglio
+      const geometria = geometriaRigo(DISEGNI_RIGO.proporzionale, wrap.offsetWidth, wrap.offsetHeight);
+      wrap.style.backgroundImage = sfondoRigo(geometria);
+      wrap.style.backgroundSize = '100% 100%';
+      wrap.style.backgroundRepeat = 'no-repeat';
       return;
     }
     const righi = righiInteri(wrap.offsetHeight);
     wrap.style.backgroundSize = `100% ${righi * RIGO.passoRigo}px`;
     wrap.style.backgroundRepeat = 'no-repeat';
   }
+
 
   showPage() {
     const totale = this.pages.length;
@@ -567,7 +683,7 @@ export class NotebookManager {
   }
 
   async addPage() {
-    const page = { id: createId('pagina'), idQuaderno: this.current.id, numero: this.pages.length + 1, elementi: [], orientamento: orientamentoNuovaPagina(this.current.tipo), data: Date.now() };
+    const page = { id: createId('pagina'), idQuaderno: this.current.id, numero: this.pages.length + 1, elementi: [], orientamento: orientamentoNuovaPagina(this.current.tipo), ...campoDisegnoRigo(this.current.tipo), data: Date.now() };
     await DB.put('paginequaderno', page);
     this.pages.push(page);
     this.pageIndex = this.pages.length - 1;
@@ -600,7 +716,7 @@ export class NotebookManager {
     canvas.width = width;
     canvas.height = height;
     const context = canvas.getContext('2d');
-    drawPaper(context, this.current.tipo, canvas.width, canvas.height, this.larghezzeFoglio[orientamento]);
+    drawPaper(context, this.current.tipo, canvas.width, canvas.height, this.larghezzeFoglio[orientamento], disegnoRigoPagina(this.current.tipo, page));
     // Stessa posa che si vede a schermo, evidenziatori compresi: l'immagine
     // esportata deve somigliare al foglio, non essere disegnata in altro modo.
     disegnaElementi(context, page.elementi || [], canvas.width, canvas.height, { pulisci: false });

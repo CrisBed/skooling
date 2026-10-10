@@ -24,6 +24,33 @@ export const TIPI_FOGLIO = {
 // sono salvati in frazioni del foglio, quindi girare una pagina gia' scritta
 // sposterebbe note e simboli. Per questo le pagine a pentagramma scritte prima
 // restano verticali e diventano orizzontali solo quelle vuote.
+export function versioneGuidePagina(tipo, pagina) {
+  if (!['righe', 'quadretti', 'millimetrato'].includes(tipo)) return 0;
+  if ([1, 2].includes(pagina?.versioneGuide)) return pagina.versioneGuide;
+  return pagina?.elementi?.length ? 1 : 2;
+}
+
+export function campoGuide(tipo) {
+  const versione = versioneGuidePagina(tipo, {});
+  return versione ? { versioneGuide: versione } : {};
+}
+
+export function geometriaGuide(tipo, larghezza) {
+  const mm = tipo === 'righe' ? 8 : tipo === 'quadretti' ? 5 : 1;
+  return { passo: larghezza * mm / 210, maggiore: larghezza * 5 / 210, mm };
+}
+
+function sfondoGuide(tipo, larghezza) {
+  const { passo, maggiore } = geometriaGuide(tipo, larghezza);
+  const colore = tipo === 'millimetrato' ? '#dcebe1' : '#c9d9f2';
+  const linea = (direzione, spazio, tinta) => `repeating-linear-gradient(${direzione}, transparent 0 ${spazio - 0.7}px, ${tinta} ${spazio - 0.7}px ${spazio}px)`;
+  const strati = [linea('to bottom', passo, colore)];
+  if (tipo !== 'righe') strati.push(linea('90deg', passo, colore));
+  if (tipo === 'millimetrato') strati.unshift(linea('to bottom', maggiore, '#9cc4a8'), linea('90deg', maggiore, '#9cc4a8'));
+  else strati.unshift('linear-gradient(90deg, transparent 0 8%, #ef9b9b 8% 8.15%, transparent 8.15%)');
+  return strati.join(', ');
+}
+
 export const ORIENTAMENTI = { verticale: 'verticale', orizzontale: 'orizzontale' };
 
 export function orientamentoNuovaPagina(tipo) {
@@ -154,10 +181,26 @@ function riga(context, x1, y1, x2, y2) {
 
 // Ridisegna il foglio per l'esportazione in PNG e PDF: a schermo lo fa il CSS,
 // qui va rifatto col pennello perche' l'immagine esca uguale a quel che si vede.
-export function drawPaper(context, type, width, height, larghezzaSchermo = 780, disegnoRigo = DISEGNI_RIGO.fisso) {
+export function drawPaper(context, type, width, height, larghezzaSchermo = 780, disegnoRigo = DISEGNI_RIGO.fisso, versioneGuide = 1) {
   context.fillStyle = '#fffefa';
   context.fillRect(0, 0, width, height);
   if (type === 'bianco') return;
+  if (versioneGuide === 2 && ['righe', 'quadretti', 'millimetrato'].includes(type)) {
+    const { passo, maggiore } = geometriaGuide(type, width);
+    context.lineWidth = Math.max(0.5, width / 1500);
+    context.strokeStyle = type === 'millimetrato' ? '#dcebe1' : '#c9d9f2';
+    for (let y = passo; y < height; y += passo) riga(context, 0, y, width, y);
+    if (type !== 'righe') for (let x = passo; x < width; x += passo) riga(context, x, 0, x, height);
+    if (type === 'millimetrato') {
+      context.strokeStyle = '#9cc4a8';
+      for (let y = maggiore; y < height; y += maggiore) riga(context, 0, y, width, y);
+      for (let x = maggiore; x < width; x += maggiore) riga(context, x, 0, x, height);
+    } else {
+      context.strokeStyle = '#ef9b9b';
+      riga(context, width * 0.08, 0, width * 0.08, height);
+    }
+    return;
+  }
 
   // Il disegno nuovo e' proporzionale: si calcola direttamente sulla misura
   // dell'immagine e cade esattamente dove cade a schermo.
@@ -220,6 +263,7 @@ export class NotebookManager {
     this.showProgress = options.showProgress || (() => {});
     this.hideProgress = options.hideProgress || (() => {});
     this.current = null;
+    this.drawWithFinger = false;
     this.pages = [];
     this.pageIndex = 0;
     this.doppia = false;
@@ -230,8 +274,10 @@ export class NotebookManager {
     this.larghezzeFoglio = { verticale: 780, orizzontale: 1100 };
     this.canvas = document.querySelector('#notebook-canvas');
     this.canvas2 = document.querySelector('#notebook-canvas-2');
-    // Zoom del quaderno: un dito scrive, due dita ingrandiscono e spostano.
+    // Zoom del quaderno: la Pencil scrive; le dita scorrono e ingrandiscono.
     this.zoom = 1;
+    this.overview = false;
+    this.zoomDiLavoro = null;
     this.panX = 0;
     this.panY = 0;
     this.pinch = null;
@@ -263,6 +309,11 @@ export class NotebookManager {
     this.group = new SurfaceGroup([this.surface, this.surface2]);
     attachToolbox(document.querySelector('#notebook-tools'), this.group);
     this.bind();
+  }
+
+  setDrawWithFinger(value) {
+    this.drawWithFinger = Boolean(value);
+    this.group.setDrawWithFinger(this.drawWithFinger);
   }
 
   // Costruisce la tavolozza dei simboli: ogni segno disegnato grande sul suo
@@ -341,7 +392,7 @@ export class NotebookManager {
       const type = new FormData(event.currentTarget).get('paper-type');
       if (!title || !subject || !TIPI_FOGLIO[type]) return;
       const notebook = { id: createId('quaderno'), titolo: title, materia: subject, tipo: type, data: Date.now(), pagine: 1 };
-      const page = { id: createId('pagina'), idQuaderno: notebook.id, numero: 1, elementi: [], orientamento: orientamentoNuovaPagina(type), ...campoDisegnoRigo(type), data: Date.now() };
+      const page = { id: createId('pagina'), idQuaderno: notebook.id, numero: 1, elementi: [], orientamento: orientamentoNuovaPagina(type), ...campoDisegnoRigo(type), ...campoGuide(type), data: Date.now() };
       await DB.put('quaderni', notebook);
       await DB.put('paginequaderno', page);
       document.querySelector('#notebook-dialog').close();
@@ -351,6 +402,10 @@ export class NotebookManager {
     document.querySelector('#close-notebook').addEventListener('click', () => this.close());
     document.querySelector('#notebook-prev').addEventListener('click', () => this.goTo(this.pageIndex - (this.doppia ? 2 : 1)));
     document.querySelector('#notebook-next').addEventListener('click', () => this.goTo(this.pageIndex + (this.doppia ? 2 : 1)));
+    document.querySelector('#editor-quaderno').addEventListener('click', (event) => {
+      if (this.overview && event.target.closest('[data-writing-mode], [data-quick-tool], [data-tool], [data-readonly], #notebook-music-grid button')) this.toggleOverview();
+    }, true);
+    document.querySelector('#notebook-overview').addEventListener('click', () => this.toggleOverview());
     document.querySelector('#notebook-two-pages').addEventListener('click', () => this.toggleDoppia());
     document.querySelector('#notebook-add-page').addEventListener('click', () => this.addPage());
     document.querySelector('#notebook-delete-page').addEventListener('click', () => this.deletePage());
@@ -364,6 +419,7 @@ export class NotebookManager {
     // Girando l'iPad il foglio cambia misura: il rigo va rifatto sulla nuova.
     const ridisegnaRighi = () => requestAnimationFrame(() => {
       for (const wrap of document.querySelectorAll('#notebook-pages .notebook-paper')) this.soloRighiInteri(wrap);
+      if (this.overview) this.fitOverview();
     });
     window.addEventListener('resize', ridisegnaRighi);
     if (typeof ResizeObserver === 'function') new ResizeObserver(ridisegnaRighi).observe(document.querySelector('#notebook-pages'));
@@ -404,7 +460,7 @@ export class NotebookManager {
     if (!this.current) return this.notify('Questo quaderno non è più disponibile.', true);
     this.pages = (await DB.getAll('paginequaderno')).filter((page) => page.idQuaderno === id).sort((a, b) => a.numero - b.numero);
     if (!this.pages.length) {
-      const page = { id: createId('pagina'), idQuaderno: id, numero: 1, elementi: [], orientamento: orientamentoNuovaPagina(this.current.tipo), ...campoDisegnoRigo(this.current.tipo), data: Date.now() };
+      const page = { id: createId('pagina'), idQuaderno: id, numero: 1, elementi: [], orientamento: orientamentoNuovaPagina(this.current.tipo), ...campoDisegnoRigo(this.current.tipo), ...campoGuide(this.current.tipo), data: Date.now() };
       await DB.put('paginequaderno', page);
       this.pages = [page];
     }
@@ -412,11 +468,13 @@ export class NotebookManager {
     // lo ricevono ora, una volta sola, e lo tengono per sempre: una pagina
     // vuota mostrata orizzontale non deve tornare verticale al primo segno.
     for (const page of this.pages) {
-      const manca = !page.orientamento || (this.current.tipo === 'pentagramma' && !page.disegnoRigo);
+      const guide = versioneGuidePagina(this.current.tipo, page);
+      const manca = !page.orientamento || (this.current.tipo === 'pentagramma' && !page.disegnoRigo) || (guide && !page.versioneGuide);
       if (!manca) continue;
       page.orientamento = orientamentoPagina(this.current.tipo, page);
       const disegno = disegnoRigoPagina(this.current.tipo, page);
       if (disegno) page.disegnoRigo = disegno;
+      if (guide) page.versioneGuide = guide;
       await DB.put('paginequaderno', page);
     }
     this.pageIndex = Math.max(0, Math.min(this.pages.length - 1, Number(pageNumber) - 1));
@@ -453,6 +511,7 @@ export class NotebookManager {
   // restano gli stessi: le coordinate del disegno sono relative al foglio
   // visibile, quindi si continua a scrivere nel punto giusto anche ingranditi.
   gestoDueDita(fase, touches) {
+    if (this.overview) return;
     const box = document.querySelector('#notebook-pages');
     const dita = ditaAppoggiate(touches);
     if (fase === 'start') {
@@ -548,6 +607,40 @@ export class NotebookManager {
     this.ultimoPunto = { x: punto.x, y: punto.y };
   }
 
+  toggleOverview() {
+    const scroll = document.querySelector('#editor-quaderno .page-scroll');
+    if (!this.overview) {
+      this.zoomDiLavoro = { zoom: this.zoom, panX: this.panX, panY: this.panY, scrollTop: scroll.scrollTop, scrollLeft: scroll.scrollLeft };
+      this.overview = true;
+      this.letturaPrimaOverview = this.group.readOnly;
+      this.group.setReadOnly(true);
+      this.fitOverview();
+    } else {
+      this.overview = false;
+      this.group.setReadOnly(this.letturaPrimaOverview);
+      const prima = this.zoomDiLavoro || { zoom: 1, panX: 0, panY: 0 };
+      this.applicaZoom(prima.zoom, prima.panX, prima.panY);
+      scroll.scrollTop = prima.scrollTop || 0;
+      scroll.scrollLeft = prima.scrollLeft || 0;
+    }
+    const bottone = document.querySelector('#notebook-overview');
+    bottone.textContent = this.overview ? 'Torna a scrivere' : 'Foglio intero';
+    bottone.setAttribute('aria-pressed', String(this.overview));
+    bottone.classList.toggle('active', this.overview);
+  }
+
+  fitOverview() {
+    const box = document.querySelector('#notebook-pages');
+    const scroll = document.querySelector('#editor-quaderno .page-scroll');
+    if (!box.offsetHeight || !scroll.clientHeight) return;
+    const scala = Math.min(1, (scroll.clientHeight - 36) / box.offsetHeight, (scroll.clientWidth - 36) / box.offsetWidth);
+    box.style.transformOrigin = 'top center';
+    box.style.transform = `scale(${Math.max(0.1, scala)})`;
+    scroll.scrollTop = 0;
+    scroll.scrollLeft = 0;
+    document.querySelector('#notebook-zoom').textContent = 'Foglio intero: controlla la grandezza delle lettere';
+  }
+
   applicaZoom(zoom, panX, panY) {
     const box = document.querySelector('#notebook-pages');
     if (zoom <= 1.01) {
@@ -564,14 +657,22 @@ export class NotebookManager {
     }
     box.style.transformOrigin = '0 0';
     box.style.transform = this.zoom === 1 ? '' : `translate(${this.panX}px, ${this.panY}px) scale(${this.zoom})`;
+    document.querySelector('#notebook-zoom').textContent = this.zoom === 1 ? 'Vista di lavoro' : `Ingrandimento ${Math.round(this.zoom * 100)}%`;
   }
 
   azzeraZoom() {
+    if (this.overview) this.group.setReadOnly(this.letturaPrimaOverview);
+    this.overview = false;
+    this.zoomDiLavoro = null;
+    const bottone = document.querySelector('#notebook-overview');
+    bottone.textContent = 'Foglio intero';
+    bottone.setAttribute('aria-pressed', 'false');
+    bottone.classList.remove('active');
     this.pinch = null;
     this.applicaZoom(1, 0, 0);
   }
 
-  // Prepara un foglio (sfondo giusto, contenuto, dito che scrive, misura)
+  // Prepara un foglio (sfondo, contenuto, preferenza del dito e misura)
   mostraFoglio(wrap, canvas, surface, page) {
     for (const classe of Object.values(TIPI_FOGLIO)) wrap.classList.remove(classe);
     wrap.classList.add(TIPI_FOGLIO[this.current.tipo] || TIPI_FOGLIO.righe);
@@ -581,9 +682,10 @@ export class NotebookManager {
     const disegno = disegnoRigoPagina(this.current.tipo, page);
     if (disegno) wrap.dataset.disegnoRigo = String(disegno);
     else delete wrap.dataset.disegnoRigo;
+    wrap.dataset.versioneGuide = String(versioneGuidePagina(this.current.tipo, page));
     surface.setElements(page ? (page.elementi || []) : []);
-    // Nel quaderno si SCRIVE: il dito disegna sempre, senza bisogno della Pencil.
-    surface.setDrawWithFinger(true);
+    // Come sui libri: la Pencil scrive e il dito scorre il foglio.
+    surface.setDrawWithFinger(this.drawWithFinger);
     requestAnimationFrame(() => {
       if (wrap.offsetWidth) this.larghezzeFoglio[orientamento] = wrap.offsetWidth;
       this.soloRighiInteri(wrap);
@@ -595,7 +697,14 @@ export class NotebookManager {
   // a una riga sola. Qui lo sfondo si ferma all'ultimo rigo che ci sta intero,
   // con la stessa regola dell'esportazione.
   soloRighiInteri(wrap) {
+    if (!this.current) return;
     wrap.style.backgroundImage = '';
+    if (Number(wrap.dataset.versioneGuide) === 2 && wrap.offsetWidth) {
+      wrap.style.backgroundImage = sfondoGuide(this.current.tipo, wrap.offsetWidth);
+      wrap.style.backgroundSize = '100% 100%';
+      wrap.style.backgroundRepeat = 'no-repeat';
+      return;
+    }
     if (this.current?.tipo !== 'pentagramma' || !wrap.offsetHeight) {
       wrap.style.backgroundSize = '';
       wrap.style.backgroundRepeat = '';
@@ -616,6 +725,12 @@ export class NotebookManager {
 
 
   showPage() {
+    if (this.overview) this.azzeraZoom();
+    const pagina = this.pages[this.pageIndex];
+    const guide = versioneGuidePagina(this.current.tipo, pagina);
+    const misura = this.current.tipo === 'pentagramma' && orientamentoPagina(this.current.tipo, pagina) === 'orizzontale' ? 'A4 · 29,7 × 21 cm' : 'A4 · 21 × 29,7 cm';
+    const riferimento = guide === 2 ? ({ righe: 'Righe 8 mm', quadretti: 'Quadretti 5 mm', millimetrato: 'Griglia 1 mm' }[this.current.tipo]) : guide === 1 ? 'Guide precedenti' : '';
+    document.querySelector('#notebook-paper-measure').textContent = `${misura}${riferimento ? ' · ' + riferimento : ''}`;
     const totale = this.pages.length;
     document.querySelector('#notebook-pages').classList.toggle('doppia', this.doppia);
 
@@ -683,7 +798,7 @@ export class NotebookManager {
   }
 
   async addPage() {
-    const page = { id: createId('pagina'), idQuaderno: this.current.id, numero: this.pages.length + 1, elementi: [], orientamento: orientamentoNuovaPagina(this.current.tipo), ...campoDisegnoRigo(this.current.tipo), data: Date.now() };
+    const page = { id: createId('pagina'), idQuaderno: this.current.id, numero: this.pages.length + 1, elementi: [], orientamento: orientamentoNuovaPagina(this.current.tipo), ...campoDisegnoRigo(this.current.tipo), ...campoGuide(this.current.tipo), data: Date.now() };
     await DB.put('paginequaderno', page);
     this.pages.push(page);
     this.pageIndex = this.pages.length - 1;
@@ -716,7 +831,7 @@ export class NotebookManager {
     canvas.width = width;
     canvas.height = height;
     const context = canvas.getContext('2d');
-    drawPaper(context, this.current.tipo, canvas.width, canvas.height, this.larghezzeFoglio[orientamento], disegnoRigoPagina(this.current.tipo, page));
+    drawPaper(context, this.current.tipo, canvas.width, canvas.height, this.larghezzeFoglio[orientamento], disegnoRigoPagina(this.current.tipo, page), versioneGuidePagina(this.current.tipo, page));
     // Stessa posa che si vede a schermo, evidenziatori compresi: l'immagine
     // esportata deve somigliare al foglio, non essere disegnata in altro modo.
     disegnaElementi(context, page.elementi || [], canvas.width, canvas.height, { pulisci: false });

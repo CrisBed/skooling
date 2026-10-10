@@ -491,6 +491,7 @@ function bindSettings() {
   finger.addEventListener('change', async () => {
     await DB.put('impostazioni', { id: 'disegna-dito', valore: finger.checked });
     PDFViewer.setDrawWithFinger(finger.checked);
+    notebooks.setDrawWithFinger(finger.checked);
   });
   document.querySelector('#export-backup').addEventListener('click', async () => {
     showProgress('Creo il backup', 'Raccolgo tutti i dati…', 0);
@@ -607,6 +608,7 @@ async function start() {
     const fingerSetting = await DB.get('impostazioni', 'disegna-dito');
     document.querySelector('#global-finger-draw').checked = Boolean(fingerSetting?.valore);
     PDFViewer.setDrawWithFinger(Boolean(fingerSetting?.valore));
+    notebooks.setDrawWithFinger(Boolean(fingerSetting?.valore));
     // Le foto salvate prima degli album vanno messe in un album per giornata,
     // altrimenti sparirebbero dall'elenco pur restando nell'archivio.
     await sistemaFotoSenzaAlbum();

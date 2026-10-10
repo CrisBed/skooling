@@ -775,7 +775,7 @@ export class DrawingSurface {
     this.render();
   }
 
-  setTool(tool) { this.tool = tool; this.selectedId = null; this.render(); }
+  setTool(tool) { this.readOnly = false; this.tool = tool; this.selectedId = null; this.render(); }
   setColor(color) {
     this.color = color;
     if (this.tool === 'testo') this.textDraft = { ...this.textDraft, colore: color };
@@ -1257,6 +1257,7 @@ export class SurfaceGroup {
     this.active = surfaces[0];
     this._onTextRequired = () => {};
     this._onTextSelection = () => {};
+    this.onStateChange = () => {};
     for (const s of surfaces) {
       s.onActivate = () => { this.active = s; };
       s.onTextRequired = () => this._onTextRequired();
@@ -1265,11 +1266,11 @@ export class SurfaceGroup {
   }
 
   // Scelte comuni: valgono per tutti i fogli
-  setTool(tool) { this.surfaces.forEach((s) => s.setTool(tool)); }
+  setTool(tool) { this.surfaces.forEach((s) => s.setTool(tool)); this.onStateChange(); }
   setColor(color) { this.surfaces.forEach((s) => s.setColor(color)); }
   setWidth(width) { this.surfaces.forEach((s) => s.setWidth(width)); }
-  setReadOnly(value) { this.surfaces.forEach((s) => s.setReadOnly(value)); }
-  setDrawWithFinger(value) { this.surfaces.forEach((s) => s.setDrawWithFinger(value)); }
+  setReadOnly(value) { this.surfaces.forEach((s) => s.setReadOnly(value)); this.onStateChange(); }
+  setDrawWithFinger(value) { this.surfaces.forEach((s) => s.setDrawWithFinger(value)); this.onStateChange(); }
   setTextDraft(draft) { this.surfaces.forEach((s) => s.setTextDraft(draft)); }
   setSegnoMusicale(segno) { this.surfaces.forEach((s) => s.setSegnoMusicale(segno)); }
 
@@ -1281,6 +1282,9 @@ export class SurfaceGroup {
   applicaStileTesto(stile) { return this.active.applicaStileTesto(stile); }
   render() { this.active.render(); }
 
+  get drawWithFinger() { return this.active.drawWithFinger; }
+  get readOnly() { return this.active.readOnly; }
+  get tool() { return this.active.tool; }
   get textDraft() { return this.active.textDraft; }
   get selectedId() { return this.active.selectedId; }
   set selectedId(value) { this.active.selectedId = value; }
@@ -1358,7 +1362,52 @@ export function downloadBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// Le modalita' restano visibili anche con l'astuccio chiuso. Scegliere uno
+// strumento riattiva sempre la scrittura, e tutti i comandi mostrano lo stato vero.
+function attachWritingControls(root, surface) {
+  const workspace = root.closest('.workspace');
+  if (!workspace) return;
+  const sync = () => {
+    const lettura = surface.readOnly;
+    workspace.querySelectorAll('[data-writing-mode]').forEach((button) => {
+      const active = (button.dataset.writingMode === 'leggi') === lettura;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
+    });
+    workspace.querySelectorAll('[data-tool], [data-quick-tool]').forEach((button) => {
+      const active = !lettura && (button.dataset.tool || button.dataset.quickTool) === surface.tool;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
+    });
+    const checkbox = root.querySelector('[data-readonly]');
+    if (checkbox) checkbox.checked = lettura;
+    workspace.querySelector('[data-writing-status]').textContent = lettura
+      ? 'Lettura: tocca Scrivi per usare la Apple Pencil.'
+      : surface.drawWithFinger
+        ? 'Apple Pencil e dito scrivono. Due dita scorrono e ingrandiscono.'
+        : 'Apple Pencil scrive. Il dito scorre, due dita ingrandiscono.';
+  };
+  surface.onStateChange = sync;
+  workspace.querySelectorAll('[data-writing-mode]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const lettura = button.dataset.writingMode === 'leggi';
+      if (lettura) surface.setReadOnly(true);
+      else root.querySelector('[data-tool="penna"]').click();
+      // La barra rapida basta per iniziare: il foglio resta libero.
+      root.hidden = true;
+      workspace.querySelector('[id^="toggle-"][id$="-tools"]')?.classList.remove('active');
+      sync();
+    });
+  });
+  workspace.querySelectorAll('[data-quick-tool]').forEach((button) => {
+    button.addEventListener('click', () => root.querySelector(`[data-tool="${button.dataset.quickTool}"]`).click());
+  });
+  workspace.querySelector('[data-quick-undo]')?.addEventListener('click', () => surface.undo());
+  sync();
+}
+
 export function attachToolbox(root, surface) {
+  attachWritingControls(root, surface);
   const palette = root.querySelector('[data-palette]');
   palette.replaceChildren(...COLORS.map((color, index) => {
     const button = document.createElement('button');

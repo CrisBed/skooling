@@ -67,7 +67,11 @@ La **gomma** toglie solo la parte toccata, non tutto il segno. Vale per i tratti
 
 Apri **Quaderni**, scegli **Nuovo quaderno** e indica titolo, materia e tipo di foglio: righe, quadretti, bianco, pentagramma o millimetrato. Sul foglio a pentagramma l'astuccio mostra i **Simboli musicali**, raccolti in Chiavi, Note, Pause e Altri segni: ogni segno si vede disegnato sul suo rigo, col nome sotto. Scegli il segno e tocca il rigo dove metterlo. Dentro il quaderno puoi aggiungere ed eliminare pagine. I pulsanti in alto esportano la pagina corrente in PNG o tutto il quaderno in PDF.
 
-Nel quaderno il dito scrive sempre, senza Apple Pencil. **Due dita ingrandiscono e spostano il foglio**: appoggia due dita e allontanale per ingrandire, avvicinale per tornare alla misura naturale, muovile insieme per spostare. Il segno iniziato con un dito solo viene tolto appena arriva il secondo, quindi ingrandire non lascia mai segni per sbaglio. Il pulsante **2 pagine** apre due fogli affiancati, scrivibili tutti e due.
+Nel quaderno la Apple Pencil scrive e il dito scorre, come nei libri. Per scrivere anche col dito si attiva **Disegna anche col dito** in Impostazioni. **Due dita ingrandiscono e spostano il foglio**: appoggia due dita e allontanale per ingrandire, avvicinale per tornare alla misura naturale, muovile insieme per spostare. Il segno iniziato con un dito solo viene tolto appena arriva il secondo, quindi ingrandire non lascia mai segni per sbaglio. Il pulsante **2 pagine** apre due fogli affiancati, scrivibili tutti e due.
+
+Il foglio ha proporzioni A4. Le pagine nuove o ancora vuote hanno righe da 8 mm, quadretti da 5 mm o griglia millimetrata da 1 mm, sempre nella stessa proporzione rispetto alla carta anche cambiando orientamento dell’iPad o aprendo l’astuccio. Non sono millimetri fisici misurabili sul display: sono le misure rispetto al foglio A4 rappresentato e all’esportazione.
+
+**Foglio intero** mostra tutta la pagina per controllare la dimensione delle lettere. In questa vista non si scrive; **Torna a scrivere** ripristina l’ingrandimento precedente. Le pagine già scritte conservano le guide precedenti per non spostarle rispetto al lavoro salvato. I pentagrammi mantengono le regole già presenti.
 
 ### Compiti
 

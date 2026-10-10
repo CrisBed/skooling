@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import{appendBackupValue,dataURLToBlob}from'../db.js';
+test('backup a porzioni conserva i byte ai confini base64',async()=>{for(const size of [0,1,2,3,196607,196608,196609,400001]){const bytes=Uint8Array.from({length:size},(_,i)=>i%251);const parts=[];await appendBackupValue({id:'test',file:new Blob([bytes],{type:'application/pdf'}),nested:[true,'à\n"',null]},parts);const value=JSON.parse(await new Blob(parts).text());const restored=dataURLToBlob(value.file.__skoolingBlob);assert.deepEqual(new Uint8Array(await restored.arrayBuffer()),bytes);assert.equal(restored.type,'application/pdf');assert.equal(value.nested[1],'à\n"');}});

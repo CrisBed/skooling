@@ -566,15 +566,34 @@ export function verificaAggiornamentoInSospeso() {
   location.reload();
 }
 
+// Chiede la versione al worker che controlla questo dispositivo, anche offline.
+// Leggere sw.js dalla rete mostrerebbe invece la versione disponibile sul server.
+async function mostraVersioneInstallata(worker = navigator.serviceWorker?.controller) {
+  const label = document.querySelector('#app-version');
+  if (!worker) { label.textContent = 'Versione non disponibile'; return; }
+  const channel = new MessageChannel();
+  const chiudi = () => { channel.port1.close(); channel.port2.close(); };
+  const timer = setTimeout(() => { label.textContent = 'Versione non disponibile'; chiudi(); }, 3000);
+  channel.port1.onmessage = (event) => {
+    clearTimeout(timer);
+    label.textContent = /^\d+$/.test(event.data?.versione)
+      ? `Versione ${event.data.versione}` : 'Versione non disponibile';
+    chiudi();
+  };
+  worker.postMessage('skooling:versione', [channel.port2]);
+}
+
 async function registerServiceWorker() {
-  if (!('serviceWorker' in navigator)) return;
+  if (!('serviceWorker' in navigator)) { document.querySelector('#app-version').textContent = 'Versione non disponibile'; return; }
   try {
     // updateViaCache 'none': il file sw.js si scarica sempre dalla rete, mai
     // dalla cache del browser. È questo che fa arrivare l'aggiornamento subito.
     const registration = await navigator.serviceWorker.register('./sw.js', { scope: './', updateViaCache: 'none' });
     const giaControllato = Boolean(navigator.serviceWorker.controller);
+    navigator.serviceWorker.ready.then((ready) => mostraVersioneInstallata(navigator.serviceWorker.controller || ready.active));
     let ricaricato = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
+      mostraVersioneInstallata();
       if (!giaControllato || ricaricato) return;
       ricaricato = true;
       applicaAggiornamento();

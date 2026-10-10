@@ -533,3 +533,6 @@ dialog::backdrop { background: rgb(13 25 53 / 48%); backdrop-filter: blur(5px); 
   .writing-shortcuts button { padding: 0 12px; }
   .paper-reference { padding: 6px 10px; }
 }
+
+.app-version-card { margin-bottom: 20px; }
+#app-version { margin-bottom: 0; color: var(--blue); font-size: 24px; font-weight: 750; }

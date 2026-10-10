@@ -1,7 +1,7 @@
 // Incrementa questo nome dopo ogni modifica ai file dell'app.
 // Lo fa da solo pubblica.sh: il nome nuovo è ciò che porta la versione nuova
 // sul dispositivo di Gabriel, senza che lui debba reinstallare nulla.
-const CACHE_NAME = 'skooling-v27';
+const CACHE_NAME = 'skooling-v28';
 const STATIC_FILES = [
   './',
   './index.html',
@@ -64,6 +64,9 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('message', (event) => {
   if (event.data === 'skooling:aggiorna-subito') self.skipWaiting();
+  if (event.data === 'skooling:versione') {
+    event.ports?.[0]?.postMessage({ versione: CACHE_NAME.replace('skooling-v', '') });
+  }
 });
 
 async function apriDallaRete(request) {
